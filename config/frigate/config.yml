@@ -1,0 +1,276 @@
+# ============================================================================
+# Frigate Plus Configuration - AI Security Lab v4.0
+# ============================================================================
+
+# Main configuration for Frigate Plus with GPU acceleration
+# This configuration enables advanced AI detection, multi-camera tracking,
+# and integration with various AI services for comprehensive surveillance.
+
+# ============================================================================
+# MAIN CONFIGURATION
+# ============================================================================
+
+model:
+  path: plus://e63b7345-83d4-4c35-98c6-123456789abc  # Replace with your Plus model ID
+  device: GPU  # Use GPU acceleration
+
+detectors:
+  tensorrt:
+    type: tensorrt
+    device: 0  # GPU 0
+
+# ============================================================================
+# CAMERA CONFIGURATION
+# ============================================================================
+
+cameras:
+  # Main entrance camera
+  entrance:
+    ffmpeg:
+      inputs:
+        - path: rtsp://${FRIGATE_CAM_USER}:${FRIGATE_CAM_PASS}@${FRIGATE_CAM_IP}/stream1
+          roles: [detect, record, audio]  # Include audio detection
+      hwaccel_args: preset-nvidia-h264  # GPU decode
+
+    detect:
+      width: 1920
+      height: 1080
+      fps: 10
+      model:
+        path: /config/models/yolov8x.pt  # Custom model if available
+
+    # Frigate Plus features
+    plus:
+      enabled: true
+      api_key: ${PLUS_API_KEY}
+      models:
+        - face_recognition: true
+        - license_plate: true
+        - package_detection: true
+        - animal_species: true
+        - vehicle_attributes: true
+        - person_attributes: true
+
+    # Advanced object tracking
+    objects:
+      track:
+        - person:
+            mask: /config/masks/entrance_person.png
+            min_score: 0.5
+            attributes:
+              - face
+              - pose
+              - clothing
+        - vehicle:
+            attributes:
+              - make
+              - model
+              - color
+              - license_plate
+        - package
+        - animal
+        - weapon  # Custom model
+
+    # Semantic zones with different rules
+    zones:
+      restricted:
+        coordinates: [[0,0], [640,0], [640,480], [0,480]]
+        objects: [person]
+        filters:
+          person:
+            min_score: 0.4  # More sensitive in restricted area
+            trigger_recording: true
+            alert_priority: high
+
+      loading_dock:
+        coordinates: [[640,0], [1920,0], [1920,480], [640,480]]
+        objects: [vehicle, person, package]
+        analytics:
+          - dwell_time: 300  # 5 minutes
+          - speed_limit: 5   # mph
+
+      public_area:
+        coordinates: [[0,480], [1920,480], [1920,1080], [0,1080]]
+        objects: all
+        crowd_detection:
+          enabled: true
+          alert_threshold: 20  # people
+
+    # Audio detection
+    audio:
+      enabled: true
+      listen:
+        - glass_breaking
+        - gunshot
+        - screaming
+        - alarm
+
+    # Smart recording
+    record:
+      enabled: true
+      retain:
+        days: 30
+        mode: motion
+      export:
+        timelapse_args: preset-gpu-timelapse
+      events:
+        pre_capture: 10
+        post_capture: 20
+        retain:
+          default: 30
+          mode: active_objects
+
+  # Parking lot camera (example of additional camera)
+  parking_lot:
+    ffmpeg:
+      inputs:
+        - path: rtsp://${FRIGATE_CAM_USER}:${FRIGATE_CAM_PASS}@${FRIGATE_CAM_IP}/stream2
+          roles: [detect, record]
+      hwaccel_args: preset-nvidia-h264
+
+    detect:
+      width: 1920
+      height: 1080
+      fps: 8
+
+    plus:
+      enabled: true
+      api_key: ${PLUS_API_KEY}
+      models:
+        - license_plate: true
+        - vehicle_attributes: true
+
+    objects:
+      track:
+        - vehicle:
+            min_score: 0.6
+            attributes:
+              - license_plate
+              - make
+              - model
+              - color
+        - person:
+            min_score: 0.5
+
+    zones:
+      parking_spots:
+        coordinates: [[0,0], [1920,0], [1920,1080], [0,1080]]
+        objects: [vehicle]
+        analytics:
+          - parking_violation: true
+          - vehicle_count: true
+
+    record:
+      enabled: true
+      retain:
+        days: 14
+        mode: motion
+      events:
+        pre_capture: 5
+        post_capture: 15
+
+# ============================================================================
+# GLOBAL SETTINGS
+# ============================================================================
+
+# MQTT configuration for event streaming
+mqtt:
+  enabled: true
+  host: mosquitto
+  port: 1883
+  topic_prefix: frigate
+  client_id: frigate-plus
+
+# Database configuration
+database:
+  path: /db/frigate.db
+
+# Global object filters
+objects:
+  filters:
+    person:
+      min_score: 0.5
+      max_velocity: 10
+    vehicle:
+      min_score: 0.6
+      max_velocity: 20
+    package:
+      min_score: 0.7
+
+# Global masks
+masks:
+  global:
+    - /config/masks/global_mask.png
+
+# ============================================================================
+# AI MODEL CONFIGURATION
+# ============================================================================
+
+# Custom models for specialized detection
+model_config:
+  # Weapon detection model
+  weapon_detection:
+    path: /config/models/weapon_detection.pt
+    labelmap:
+      0: weapon
+      1: no_weapon
+
+  # Custom behavior analysis
+  behavior_analysis:
+    path: /config/models/behavior_analysis.pt
+    labelmap:
+      0: normal
+      1: suspicious
+      2: aggressive
+
+# ============================================================================
+# INTEGRATION SETTINGS
+# ============================================================================
+
+# Webhook notifications
+webhooks:
+  events:
+    - person_detected
+    - vehicle_detected
+    - weapon_detected
+    - audio_event
+  url: http://api-gateway:4000/webhooks/frigate
+
+# Export settings
+exports:
+  enabled: true
+  timelapse_args: preset-gpu-timelapse
+
+# ============================================================================
+# PERFORMANCE OPTIMIZATION
+# ============================================================================
+
+# GPU memory allocation
+gpu:
+  memory: 8GB
+  streams: 4
+
+# Detection optimization
+detection:
+  max_disappeared: 30
+  max_distance: 0.3
+  stationary:
+    threshold: 50
+    interval: 100
+
+# Logging
+logger:
+  default: info
+  logs:
+    frigate.event: debug
+    frigate.detection: info
+
+# ============================================================================
+# DEVELOPMENT SETTINGS
+# ============================================================================
+
+# Enable debug features for development
+debug:
+  enabled: false
+  save_clips: true
+  record_failed: true

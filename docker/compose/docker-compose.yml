@@ -1,0 +1,395 @@
+version: '3.8'
+
+# AI Security Lab v4.0 - Main Docker Compose Stack
+# GPU-accelerated surveillance system with multi-model AI pipeline
+
+x-common: &common
+  restart: unless-stopped
+  security_opt:
+    - no-new-privileges:true
+  networks:
+    - security-network
+
+x-gpu: &gpu
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            count: 1
+            capabilities: [gpu]
+
+networks:
+  security-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+volumes:
+  # Data volumes
+  frigate-media:
+    driver: local
+  timescaledb-data:
+    driver: local
+  qdrant-storage:
+    driver: local
+  minio-data:
+    driver: local
+  redis-data:
+    driver: local
+
+  # Config volumes
+  frigate-config:
+    driver: local
+  ai-models:
+    driver: local
+
+services:
+  # ============================================================================
+  # CORE DETECTION & PROCESSING
+  # ============================================================================
+
+  frigate-plus:
+    <<: [*common, *gpu]
+    image: ghcr.io/blakeblackshear/frigate:0.14.0-tensorrt
+    container_name: frigate-plus
+    privileged: true
+    environment:
+      FRIGATE_RTSP_PASSWORD: ${FRIGATE_CAM_PASS:-default}
+      PLUS_API_KEY: ${PLUS_API_KEY}
+    volumes:
+      - frigate-config:/config
+      - frigate-media:/media/frigate
+      - /dev/bus/usb:/dev/bus/usb
+      - /opt/vc:/opt/vc:ro
+    ports:
+      - "5000:5000"  # Web UI
+      - "8554:8554"  # RTSP
+      - "8555:8555/tcp"  # WebRTC
+      - "8555:8555/udp"  # WebRTC
+    devices:
+      - /dev/video0:/dev/video0
+      - /dev/video1:/dev/video1
+    command: frigate
+
+  deepstack-gpu:
+    <<: [*common, *gpu]
+    image: deepquestai/deepstack:gpu
+    container_name: deepstack-gpu
+    environment:
+      VISION-DETECTION: "True"
+      VISION-API-KEY: ${DEEPSTACK_API_KEY}
+    volumes:
+      - ai-models:/app/models
+    ports:
+      - "80:5000"
+
+  compreface:
+    <<: [*common, *gpu]
+    image: exadel/compreface:latest
+    container_name: compreface
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-compreface}
+      POSTGRES_USER: compreface
+      POSTGRES_DB: compreface
+    volumes:
+      - compreface-data:/var/lib/postgresql/data
+    ports:
+      - "8000:8000"
+
+  platerecognizer:
+    <<: [*common, *gpu]
+    image: platerecognizer/alpr:latest
+    container_name: platerecognizer
+    environment:
+      TOKEN: ${PLATE_RECOGNIZER_API_KEY}
+    ports:
+      - "8080:8080"
+
+  # ============================================================================
+  # DATA INFRASTRUCTURE
+  # ============================================================================
+
+  timescaledb:
+    <<: *common
+    image: timescale/timescaledb:latest-pg15
+    container_name: timescaledb
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-secure-password}
+      POSTGRES_USER: security
+      POSTGRES_DB: security_events
+    volumes:
+      - timescaledb-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U security"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  qdrant:
+    <<: *common
+    image: qdrant/qdrant:latest
+    container_name: qdrant
+    environment:
+      QDRANT__STORAGE__STORAGE_PATH: /qdrant/storage
+      QDRANT__STORAGE__TEMP_PATH: /qdrant/temp
+    volumes:
+      - qdrant-storage:/qdrant/storage
+      - qdrant-temp:/qdrant/temp
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  minio:
+    <<: *common
+    image: minio/minio:latest
+    container_name: minio
+    environment:
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-secure-password}
+      MINIO_DOMAIN: minio.local
+    volumes:
+      - minio-data:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  redis-stack:
+    <<: *common
+    image: redis/redis-stack:latest
+    container_name: redis-stack
+    environment:
+      REDIS_ARGS: "--requirepass ${REDIS_PASSWORD:-secure-password}"
+    volumes:
+      - redis-data:/data
+    ports:
+      - "6379:6379"
+      - "8001:8001"  # RedisInsight
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ============================================================================
+  # PROCESSING PIPELINE
+  # ============================================================================
+
+  kafka:
+    <<: *common
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: kafka
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,PLAINTEXT_HOST://0.0.0.0:9092
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_JMX_PORT: 9991
+    ports:
+      - "9092:9092"
+    depends_on:
+      - zookeeper
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server=localhost:9092"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  zookeeper:
+    <<: *common
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+
+  kafka-connect:
+    <<: *common
+    image: confluentinc/cp-kafka-connect:7.5.0
+    container_name: kafka-connect
+    environment:
+      CONNECT_BOOTSTRAP_SERVERS: kafka:29092
+      CONNECT_REST_ADVERTISED_HOST_NAME: kafka-connect
+      CONNECT_REST_PORT: 8083
+      CONNECT_GROUP_ID: security-connect-group
+      CONNECT_CONFIG_STORAGE_TOPIC: _connect-configs
+      CONNECT_OFFSET_STORAGE_TOPIC: _connect-offsets
+      CONNECT_STATUS_STORAGE_TOPIC: _connect-status
+      CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_INTERNAL_KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_INTERNAL_VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+    ports:
+      - "8083:8083"
+    depends_on:
+      - kafka
+
+  # ============================================================================
+  # OBSERVABILITY
+  # ============================================================================
+
+  prometheus:
+    <<: *common
+    image: prom/prometheus:latest
+    container_name: prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=90d'
+      - '--web.enable-lifecycle'
+    volumes:
+      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  grafana:
+    <<: *common
+    image: grafana/grafana:latest
+    container_name: grafana
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_INSTALL_PLUGINS: grafana-piechart-panel,grafana-worldmap-panel
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./config/grafana/datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml
+      - ./config/grafana/dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  loki:
+    <<: *common
+    image: grafana/loki:latest
+    container_name: loki
+    command: -config.file=/etc/loki/local-config.yaml
+    ports:
+      - "3100:3100"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3100/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  tempo:
+    <<: *common
+    image: grafana/tempo:latest
+    container_name: tempo
+    command: -config.file=/etc/tempo/tempo.yaml
+    ports:
+      - "3200:3200"
+      - "4317:4317"
+      - "4318:4318"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3200/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ============================================================================
+  # USER INTERFACE
+  # ============================================================================
+
+  api-gateway:
+    <<: *common
+    image: node:18-alpine
+    container_name: api-gateway
+    working_dir: /app
+    volumes:
+      - ./services/api/gateway:/app
+    ports:
+      - "4000:4000"
+    command: sh -c "npm install && npm run dev"
+    environment:
+      - NODE_ENV=development
+    depends_on:
+      - timescaledb
+      - redis-stack
+      - frigate-plus
+    profiles:
+      - ui
+
+  websocket-server:
+    <<: *common
+    image: node:18-alpine
+    container_name: websocket-server
+    working_dir: /app
+    volumes:
+      - ./services/api/websocket:/app
+    ports:
+      - "4001:4001"
+    command: sh -c "npm install && npm run dev"
+    environment:
+      - NODE_ENV=development
+    depends_on:
+      - redis-stack
+    profiles:
+      - ui
+
+  dashboard:
+    <<: *common
+    image: node:18-alpine
+    container_name: dashboard
+    working_dir: /app
+    volumes:
+      - ./services/ui/dashboard:/app
+    ports:
+      - "3001:3000"
+    command: sh -c "npm install && npm run dev"
+    environment:
+      - NODE_ENV=development
+    depends_on:
+      - api-gateway
+      - websocket-server
+    profiles:
+      - ui
+
+volumes:
+  # Additional volumes for observability
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
+  qdrant-temp:
+    driver: local
+  compreface-data:
+    driver: local

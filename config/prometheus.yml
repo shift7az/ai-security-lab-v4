@@ -1,0 +1,115 @@
+# ============================================================================
+# Prometheus Configuration - AI Security Lab v4.0
+# ============================================================================
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  scrape_timeout: 10s
+
+# Alertmanager configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          - alertmanager:9093
+
+# Load rules once and periodically evaluate them
+rule_files:
+  - "alert_rules.yml"
+
+# Scrape configurations
+scrape_configs:
+  # Prometheus itself
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # Frigate Plus metrics
+  - job_name: 'frigate-plus'
+    static_configs:
+      - targets: ['frigate-plus:5000']
+    scrape_interval: 10s
+    metrics_path: '/api/stats/prometheus'
+
+  # TimescaleDB metrics
+  - job_name: 'timescaledb'
+    static_configs:
+      - targets: ['timescaledb:9187']
+    scrape_interval: 30s
+
+  # Redis metrics
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis-stack:9121']
+    scrape_interval: 30s
+
+  # Qdrant metrics
+  - job_name: 'qdrant'
+    static_configs:
+      - targets: ['qdrant:6333']
+    scrape_interval: 30s
+    metrics_path: '/metrics'
+
+  # Kafka metrics
+  - job_name: 'kafka'
+    static_configs:
+      - targets: ['kafka:9991']
+    scrape_interval: 30s
+
+  # Node exporter for system metrics
+  - job_name: 'node'
+    static_configs:
+      - targets: ['node-exporter:9100']
+    scrape_interval: 30s
+
+  # Docker containers
+  - job_name: 'docker'
+    static_configs:
+      - targets: ['docker-host:9323']
+    scrape_interval: 30s
+
+  # Custom application metrics
+  - job_name: 'api-gateway'
+    static_configs:
+      - targets: ['api-gateway:4000']
+    scrape_interval: 15s
+    metrics_path: '/metrics'
+
+  # GPU metrics (if available)
+  - job_name: 'gpu'
+    static_configs:
+      - targets: ['gpu-exporter:9835']
+    scrape_interval: 30s
+
+  # AI service metrics
+  - job_name: 'deepstack'
+    static_configs:
+      - targets: ['deepstack-gpu:5000']
+    scrape_interval: 30s
+    metrics_path: '/v1/vision/detection/metrics'
+
+  - job_name: 'compreface'
+    static_configs:
+      - targets: ['compreface:8000']
+    scrape_interval: 30s
+    metrics_path: '/api/v1/recognition/faces/metrics'
+
+  - job_name: 'platerecognizer'
+    static_configs:
+      - targets: ['platerecognizer:8080']
+    scrape_interval: 30s
+    metrics_path: '/metrics'
+
+# Remote write (for long-term storage)
+remote_write:
+  - url: "http://timescaledb:9201/write"
+    queue_config:
+      max_samples_per_send: 1000
+      max_shards: 200
+      capacity: 2500
+
+# Remote read (for querying historical data)
+remote_read:
+  - url: "http://timescaledb:9201/read"
+    read_recent: true
