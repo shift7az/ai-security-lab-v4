@@ -92,55 +92,16 @@ async def get_cameras():
     Returns list of cameras with their current status and threat counts.
     """
     try:
-        # Mock camera data for now
-        # TODO: Integrate with actual camera management system
-        cameras = [
-            {
-                "id": "entrance_01",
-                "name": "Main Entrance",
-                "location": "Building A - Entrance",
-                "status": "online",
-                "stream_url": "http://localhost:5000/api/entrance_01/latest.jpg",
-                "snapshot_url": "http://localhost:5000/api/entrance_01/latest.jpg",
-                "threat_count_24h": 3,
-                "uptime_percentage": 99.5,
-                "metadata": {
-                    "resolution": "1080p",
-                    "fps": 30,
-                    "codec": "h264"
-                }
-            },
-            {
-                "id": "parking_01",
-                "name": "Parking Lot",
-                "location": "Building A - Parking",
-                "status": "online",
-                "stream_url": "http://localhost:5000/api/parking_01/latest.jpg",
-                "snapshot_url": "http://localhost:5000/api/parking_01/latest.jpg",
-                "threat_count_24h": 1,
-                "uptime_percentage": 98.2,
-                "metadata": {
-                    "resolution": "1080p",
-                    "fps": 30,
-                    "codec": "h264"
-                }
-            },
-            {
-                "id": "warehouse_01",
-                "name": "Warehouse",
-                "location": "Building B - Main Floor",
-                "status": "online",
-                "stream_url": "http://localhost:5000/api/warehouse_01/latest.jpg",
-                "snapshot_url": "http://localhost:5000/api/warehouse_01/latest.jpg",
-                "threat_count_24h": 0,
-                "uptime_percentage": 100.0,
-                "metadata": {
-                    "resolution": "4K",
-                    "fps": 30,
-                    "codec": "h265"
-                }
-            },
-        ]
+        if not db_service:
+            raise HTTPException(status_code=503, detail="Database service not available")
+        
+        # Get cameras from database
+        cameras = await db_service.get_cameras()
+        
+        # Enrich with threat counts
+        for camera in cameras:
+            threat_count = await db_service.get_camera_threat_count(camera['id'], hours=24)
+            camera['threat_count_24h'] = threat_count
         
         return cameras
     
@@ -249,25 +210,15 @@ async def get_timeline_events(hours: int = Query(24, ge=1, le=168)):
     Returns chronological list of threats, alerts, and system events.
     """
     try:
-        # Mock timeline data for now
-        # TODO: Implement actual timeline from database
-        events = [
-            {
-                "id": f"event_{i}",
-                "type": "threat" if i % 3 == 0 else "alert" if i % 3 == 1 else "camera",
-                "timestamp": (datetime.utcnow() - timedelta(hours=i)).isoformat(),
-                "camera_id": f"camera_{i % 3 + 1}",
-                "camera_name": f"Camera {i % 3 + 1}",
-                "threat_level": ["low", "medium", "high"][i % 3],
-                "title": f"Event {i}",
-                "description": f"Description for event {i}",
-                "metadata": {
-                    "detection_type": "person",
-                    "confidence": 0.85
-                }
-            }
-            for i in range(min(20, hours))
-        ]
+        if not db_service:
+            raise HTTPException(status_code=503, detail="Database service not available")
+        
+        # Get events from database
+        events = await db_service.get_timeline_events(hours=hours, limit=100)
+        
+        # Convert datetime to ISO string
+        for event in events:
+            event['timestamp'] = event['timestamp'].isoformat()
         
         return events
     
@@ -295,42 +246,24 @@ async def get_active_alerts(
         camera_id: Filter by camera
     """
     try:
-        # Mock alert data for now
-        # TODO: Implement actual alert retrieval from database
-        alerts = [
-            {
-                "id": "alert_001",
-                "camera_id": "entrance_01",
-                "camera_name": "Main Entrance",
-                "threat_level": "high",
-                "priority": "high",
-                "message": "Suspicious behavior detected",
-                "description": "Person loitering for extended period",
-                "timestamp": (datetime.utcnow() - timedelta(minutes=5)).isoformat(),
-                "status": "active",
-                "threat_score": 0.75
-            },
-            {
-                "id": "alert_002",
-                "camera_id": "parking_01",
-                "camera_name": "Parking Lot",
-                "threat_level": "critical",
-                "priority": "critical",
-                "message": "Weapon detected",
-                "description": "Potential firearm identified",
-                "timestamp": (datetime.utcnow() - timedelta(minutes=15)).isoformat(),
-                "status": "active",
-                "threat_score": 0.92
-            },
-        ]
+        if not db_service:
+            raise HTTPException(status_code=503, detail="Database service not available")
         
-        # Apply filters
-        if status:
-            alerts = [a for a in alerts if a["status"] == status]
-        if priority:
-            alerts = [a for a in alerts if a["priority"] == priority]
-        if camera_id:
-            alerts = [a for a in alerts if a["camera_id"] == camera_id]
+        # Get alerts from database with filtering
+        alerts = await db_service.get_alerts(
+            status=status,
+            priority=priority,
+            camera_id=camera_id,
+            limit=100
+        )
+        
+        # Convert datetime objects to ISO strings
+        for alert in alerts:
+            alert['timestamp'] = alert['timestamp'].isoformat()
+            if alert.get('acknowledged_at'):
+                alert['acknowledged_at'] = alert['acknowledged_at'].isoformat()
+            if alert.get('resolved_at'):
+                alert['resolved_at'] = alert['resolved_at'].isoformat()
         
         return alerts
     
@@ -393,18 +326,10 @@ async def resolve_alert(
 async def get_alert_statistics(hours: int = 24) -> dict:
     """Get alert statistics for the specified time period."""
     try:
-        # Mock statistics for now
-        # TODO: Implement actual statistics from database
-        return {
-            "total": 15,
-            "active": 5,
-            "acknowledged": 7,
-            "resolved": 3,
-            "critical": 2,
-            "high": 5,
-            "medium": 6,
-            "low": 2
-        }
+        if not db_service:
+            return {}
+        
+        return await db_service.get_alert_statistics(hours=hours)
     except Exception as e:
         logger.error(f"Failed to get alert statistics: {e}")
         return {}
@@ -413,15 +338,10 @@ async def get_alert_statistics(hours: int = 24) -> dict:
 async def get_camera_statistics() -> dict:
     """Get camera statistics."""
     try:
-        # Mock statistics for now
-        # TODO: Implement actual camera statistics
-        return {
-            "total": 3,
-            "online": 3,
-            "offline": 0,
-            "error": 0,
-            "maintenance": 0
-        }
+        if not db_service:
+            return {"total": 0, "online": 0, "offline": 0, "error": 0, "maintenance": 0}
+        
+        return await db_service.get_camera_statistics()
     except Exception as e:
         logger.error(f"Failed to get camera statistics: {e}")
         return {"total": 0, "online": 0, "offline": 0, "error": 0, "maintenance": 0}
@@ -430,18 +350,10 @@ async def get_camera_statistics() -> dict:
 async def calculate_threat_trend(hours: int = 24) -> dict:
     """Calculate threat trend compared to previous period."""
     try:
-        # Mock trend calculation
-        # TODO: Implement actual trend calculation from database
-        current = 15
-        previous = 12
-        change = ((current - previous) / previous * 100) if previous > 0 else 0
+        if not db_service:
+            return {"current": 0, "previous": 0, "change_percentage": 0, "direction": "stable"}
         
-        return {
-            "current": current,
-            "previous": previous,
-            "change_percentage": round(change, 1),
-            "direction": "up" if change > 5 else "down" if change < -5 else "stable"
-        }
+        return await db_service.calculate_threat_trend(hours=hours)
     except Exception as e:
         logger.error(f"Failed to calculate threat trend: {e}")
         return {"current": 0, "previous": 0, "change_percentage": 0, "direction": "stable"}
@@ -450,11 +362,21 @@ async def calculate_threat_trend(hours: int = 24) -> dict:
 async def calculate_alert_trend(hours: int = 24) -> dict:
     """Calculate alert trend compared to previous period."""
     try:
-        # Mock trend calculation
-        # TODO: Implement actual trend calculation from database
-        current = 5
-        previous = 8
-        change = ((current - previous) / previous * 100) if previous > 0 else 0
+        if not db_service:
+            return {"current": 0, "previous": 0, "change_percentage": 0, "direction": "stable"}
+        
+        # Use similar logic to threat trend but for alerts
+        stats_current = await db_service.get_alert_statistics(hours=hours)
+        stats_previous = await db_service.get_alert_statistics(hours=hours * 2)
+        
+        current = stats_current.get('total', 0)
+        # Calculate previous period (subtract current from 2x period)
+        previous = stats_previous.get('total', 0) - current
+        
+        if previous > 0:
+            change = ((current - previous) / previous) * 100
+        else:
+            change = 0
         
         return {
             "current": current,
