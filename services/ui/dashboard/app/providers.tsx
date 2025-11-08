@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { ThemeProvider } from 'next-themes'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { WebSocketProvider } from '@/hooks/useWebSocket'
+import { AuthProvider } from '@/hooks/useAuth'
 
 export function Providers({ children }: { children: React.ReactNode }) {
   // Create QueryClient instance
@@ -30,9 +31,11 @@ export function Providers({ children }: { children: React.ReactNode }) {
         enableSystem
         disableTransitionOnChange
       >
-        <WebSocketProvider>
-          {children}
-        </WebSocketProvider>
+        <AuthProvider>
+          <WebSocketProvider>
+            {children}
+          </WebSocketProvider>
+        </AuthProvider>
       </ThemeProvider>
     </QueryClientProvider>
   )

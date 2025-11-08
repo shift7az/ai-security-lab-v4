@@ -26,9 +26,10 @@ from src.models.detection import DetectionResult, ThreatLevel
 from src.services.frigate_client import FrigateClient
 from src.services.database import DatabaseService
 from src.services.cache import CacheService
+from src.services.auth_service import AuthService
 from src.utils.logging_config import setup_logging
 from src.config.settings import Settings
-from src.api import dashboard, settings
+from src.api import dashboard, settings, auth
 
 
 # ============================================================================
@@ -55,6 +56,7 @@ orchestrator: Optional[EnhancedAIOrchestrator] = None
 frigate_client: Optional[FrigateClient] = None
 db_service: Optional[DatabaseService] = None
 cache_service: Optional[CacheService] = None
+auth_service: Optional[AuthService] = None
 
 # Settings
 settings = Settings()
@@ -76,7 +78,7 @@ sio = socketio.AsyncServer(
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager."""
-    global orchestrator, frigate_client, db_service, cache_service
+    global orchestrator, frigate_client, db_service, cache_service, auth_service
 
     logger.info("Starting AI Security Lab v4.0 AI Orchestrator...")
 
@@ -110,6 +112,13 @@ async def lifespan(app: FastAPI):
         )
         logger.info("Frigate client initialized")
 
+        # Auth service
+        auth_service = AuthService(
+            db_service=db_service,
+            secret_key=settings.jwt_secret_key
+        )
+        logger.info("Auth service initialized")
+
         # AI Orchestrator
         orchestrator = EnhancedAIOrchestrator(
             db_service=db_service,
@@ -127,6 +136,10 @@ async def lifespan(app: FastAPI):
         # Set dependencies for settings router
         settings.set_dependencies(db_service, settings)
         logger.info("Settings API router configured")
+        
+        # Set dependencies for auth router
+        auth.init_auth_api(auth_service, db_service)
+        logger.info("Auth API router configured")
 
     except Exception as e:
         logger.error(f"Failed to initialize services: {e}")
@@ -167,10 +180,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include dashboard API router
+# Include API routers
+app.include_router(auth.router)
 app.include_router(dashboard.router)
-
-# Include settings API router
 app.include_router(settings.router)
 
 # Mount Socket.IO

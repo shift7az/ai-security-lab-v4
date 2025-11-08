@@ -90,6 +90,17 @@ class Settings(BaseSettings):
     cors_allow_credentials: bool = Field(default=True, env="CORS_ALLOW_CREDENTIALS")
 
     # ========================================================================
+    # Authentication Configuration
+    # ========================================================================
+
+    jwt_secret_key: str = Field(
+        default="your-secret-key-change-in-production-min-32-chars-long",
+        env="JWT_SECRET_KEY"
+    )
+    jwt_algorithm: str = Field(default="HS256", env="JWT_ALGORITHM")
+    jwt_expiration_minutes: int = Field(default=60, env="JWT_EXPIRATION_MINUTES")
+
+    # ========================================================================
     # Logging Configuration
     # ========================================================================
 
