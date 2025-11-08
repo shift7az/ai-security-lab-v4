@@ -108,6 +108,7 @@ arq==0.25.0
 
 # WebSocket Support
 websockets==12.0
+python-socketio==5.10.0
 
 # Documentation
 mkdocs==1.5.3

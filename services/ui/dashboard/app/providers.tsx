@@ -1,39 +1,39 @@
 'use client'
 
+import { useState } from 'react'
 import { ThemeProvider } from 'next-themes'
-import { SWRConfig } from 'swr'
-import { SocketProvider } from '@/lib/socket'
-
-const fetcher = async (url: string) => {
-  const res = await fetch(url)
-  if (!res.ok) {
-    throw new Error('Failed to fetch')
-  }
-  return res.json()
-}
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { WebSocketProvider } from '@/hooks/useWebSocket'
 
 export function Providers({ children }: { children: React.ReactNode }) {
+  // Create QueryClient instance
+  const [queryClient] = useState(() => new QueryClient({
+    defaultOptions: {
+      queries: {
+        staleTime: 5000, // Data is fresh for 5 seconds
+        refetchOnWindowFocus: true,
+        refetchOnReconnect: true,
+        retry: 3,
+        retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
+      },
+      mutations: {
+        retry: 1,
+      },
+    },
+  }))
+
   return (
-    <ThemeProvider
-      attribute="class"
-      defaultTheme="dark"
-      enableSystem
-      disableTransitionOnChange
-    >
-      <SWRConfig
-        value={{
-          fetcher,
-          refreshInterval: 5000, // Refresh every 5 seconds
-          revalidateOnFocus: true,
-          revalidateOnReconnect: true,
-          errorRetryCount: 3,
-          errorRetryInterval: 1000,
-        }}
+    <QueryClientProvider client={queryClient}>
+      <ThemeProvider
+        attribute="class"
+        defaultTheme="dark"
+        enableSystem
+        disableTransitionOnChange
       >
-        <SocketProvider>
+        <WebSocketProvider>
           {children}
-        </SocketProvider>
-      </SWRConfig>
-    </ThemeProvider>
+        </WebSocketProvider>
+      </ThemeProvider>
+    </QueryClientProvider>
   )
 }

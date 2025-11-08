@@ -21,13 +21,14 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.exporter.jaeger.thrift import JaegerExporter
 
-from src.core.orchestrator import AIOrchestrator
+from src.core.enhanced_orchestrator import EnhancedAIOrchestrator
 from src.models.detection import DetectionResult, ThreatLevel
 from src.services.frigate_client import FrigateClient
 from src.services.database import DatabaseService
 from src.services.cache import CacheService
 from src.utils.logging_config import setup_logging
 from src.config.settings import Settings
+from src.api import dashboard
 
 
 # ============================================================================
@@ -50,13 +51,22 @@ span_processor = BatchSpanProcessor(jaeger_exporter)
 trace.get_tracer_provider().add_span_processor(span_processor)
 
 # Global services
-orchestrator: Optional[AIOrchestrator] = None
+orchestrator: Optional[EnhancedAIOrchestrator] = None
 frigate_client: Optional[FrigateClient] = None
 db_service: Optional[DatabaseService] = None
 cache_service: Optional[CacheService] = None
 
 # Settings
 settings = Settings()
+
+# Socket.IO for real-time communication
+import socketio
+sio = socketio.AsyncServer(
+    async_mode='asgi',
+    cors_allowed_origins='*',
+    logger=True,
+    engineio_logger=False
+)
 
 
 # ============================================================================
@@ -101,14 +111,18 @@ async def lifespan(app: FastAPI):
         logger.info("Frigate client initialized")
 
         # AI Orchestrator
-        orchestrator = AIOrchestrator(
+        orchestrator = EnhancedAIOrchestrator(
             db_service=db_service,
             cache_service=cache_service,
             frigate_client=frigate_client,
             settings=settings
         )
         await orchestrator.initialize()
-        logger.info("AI Orchestrator initialized")
+        logger.info("Enhanced AI Orchestrator initialized")
+        
+        # Set dependencies for dashboard router
+        dashboard.set_dependencies(orchestrator, db_service, cache_service)
+        logger.info("Dashboard API router configured")
 
     except Exception as e:
         logger.error(f"Failed to initialize services: {e}")
@@ -148,6 +162,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Include dashboard API router
+app.include_router(dashboard.router)
+
+# Mount Socket.IO
+socket_app = socketio.ASGIApp(sio, app)
 
 
 # ============================================================================
@@ -241,9 +261,48 @@ async def broadcast_event(event: Dict[str, Any]):
 # API ENDPOINTS
 # ============================================================================
 
+# ============================================================================
+# SOCKET.IO EVENT HANDLERS
+# ============================================================================
+
+@sio.event
+async def connect(sid, environ):
+    """Handle Socket.IO client connection."""
+    logger.info(f"Socket.IO client connected: {sid}")
+    await sio.emit('connected', {'message': 'Connected to AI Security Lab'}, room=sid)
+
+
+@sio.event
+async def disconnect(sid):
+    """Handle Socket.IO client disconnection."""
+    logger.info(f"Socket.IO client disconnected: {sid}")
+
+
+async def broadcast_threat_detection(threat_data: Dict[str, Any]):
+    """Broadcast threat detection to all Socket.IO clients."""
+    await sio.emit('threat_detected', threat_data)
+
+
+async def broadcast_new_alert(alert_data: Dict[str, Any]):
+    """Broadcast new alert to all Socket.IO clients."""
+    await sio.emit('new_alert', alert_data)
+
+
+async def broadcast_system_update(system_data: Dict[str, Any]):
+    """Broadcast system update to all Socket.IO clients."""
+    await sio.emit('system_update', system_data)
+
+
+# ============================================================================
+# REST API ENDPOINTS
+# ============================================================================
+
 @app.get("/health")
 async def health_check():
     """Health check endpoint."""
+    if orchestrator:
+        return await orchestrator.get_system_health()
+    
     return {
         "status": "healthy",
         "timestamp": datetime.utcnow(),
