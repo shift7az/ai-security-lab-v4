@@ -5,12 +5,12 @@ Client service for communicating with the threat detector microservice.
 Handles threat analysis requests, alert management, and real-time updates.
 """
 
-import json
 import logging
-from typing import Dict, List, Optional, Any
-from datetime import datetime
-import aiohttp
 from dataclasses import dataclass
+from datetime import datetime
+from typing import Any, Dict, List, Optional
+
+import aiohttp
 
 logger = logging.getLogger(__name__)
 

@@ -3,13 +3,14 @@ Settings API Router for AI Security Lab v4.0
 Provides endpoints for runtime configuration management
 """
 
-from fastapi import APIRouter, HTTPException, Body
-from typing import List, Dict, Any, Optional
-from datetime import datetime
 import logging
+from datetime import datetime
+from typing import Any, Dict, List, Optional
 
-from ..services.database import DatabaseService
+from fastapi import APIRouter, Body, HTTPException
+
 from ..config.settings import Settings as AppSettings
+from ..services.database import DatabaseService
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +97,7 @@ def get_settings_metadata() -> List[Dict[str, Any]]:
             "is_readonly": False,
             "validation": {"min": 5, "max": 100}
         },
-        
+
         # Redis/Cache Settings
         {
             "key": "redis_host",
@@ -132,7 +133,7 @@ def get_settings_metadata() -> List[Dict[str, Any]]:
             "is_readonly": False,
             "validation": {"min": 10, "max": 200}
         },
-        
+
         # Service URLs
         {
             "key": "frigate_url",
@@ -166,7 +167,7 @@ def get_settings_metadata() -> List[Dict[str, Any]]:
             "is_secret": False,
             "is_readonly": False
         },
-        
+
         # Performance Settings
         {
             "key": "max_concurrent_analyses",
@@ -212,7 +213,7 @@ def get_settings_metadata() -> List[Dict[str, Any]]:
             "is_readonly": False,
             "validation": {"min": 1, "max": 32}
         },
-        
+
         # Feature Flags
         {
             "key": "enable_websocket",
@@ -238,7 +239,7 @@ def get_settings_metadata() -> List[Dict[str, Any]]:
             "is_secret": False,
             "is_readonly": False
         },
-        
+
         # Monitoring Settings
         {
             "key": "log_level",
@@ -278,45 +279,45 @@ async def get_all_settings():
     try:
         if not db_service or not app_settings:
             raise HTTPException(status_code=503, detail="Service not initialized")
-        
+
         metadata = get_settings_metadata()
         result = []
-        
+
         for meta in metadata:
             key = meta["key"]
-            
+
             # Get current value from app settings
             current_value = getattr(app_settings, key, None)
-            
+
             # Check if overridden in database
             db_setting = await db_service.fetch_one(
                 "SELECT * FROM system_settings WHERE key = $1",
                 key
             )
-            
+
             setting_data = {
                 **meta,
                 "current_value": current_value,
                 "default_value": current_value,  # From Settings class
                 "is_modified": db_setting is not None,
             }
-            
+
             if db_setting:
                 setting_data["value"] = db_setting["value"]
                 setting_data["modified_by"] = db_setting.get("modified_by")
                 setting_data["modified_at"] = db_setting.get("modified_at").isoformat() if db_setting.get("modified_at") else None
             else:
                 setting_data["value"] = current_value
-            
+
             # Mask secrets
             if meta["is_secret"] and setting_data["value"]:
                 setting_data["value"] = "***HIDDEN***"
                 setting_data["current_value"] = "***HIDDEN***"
-            
+
             result.append(setting_data)
-        
+
         return result
-    
+
     except Exception as e:
         logger.error(f"Failed to get settings: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -327,7 +328,7 @@ async def get_categories():
     """Get all setting categories with counts."""
     try:
         metadata = get_settings_metadata()
-        
+
         categories = {}
         for setting in metadata:
             cat = setting["category"]
@@ -339,9 +340,9 @@ async def get_categories():
                     "icon": get_category_icon(cat)
                 }
             categories[cat]["count"] += 1
-        
+
         return list(categories.values())
-    
+
     except Exception as e:
         logger.error(f"Failed to get categories: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -353,41 +354,41 @@ async def get_setting(key: str):
     try:
         if not db_service or not app_settings:
             raise HTTPException(status_code=503, detail="Service not initialized")
-        
+
         # Check if setting exists in metadata
         metadata = next((m for m in get_settings_metadata() if m["key"] == key), None)
         if not metadata:
             raise HTTPException(status_code=404, detail="Setting not found")
-        
+
         # Get current value
         current_value = getattr(app_settings, key, None)
-        
+
         # Check database override
         db_setting = await db_service.fetch_one(
             "SELECT * FROM system_settings WHERE key = $1",
             key
         )
-        
+
         result = {
             **metadata,
             "current_value": current_value,
             "default_value": current_value,
             "is_modified": db_setting is not None
         }
-        
+
         if db_setting:
             result["value"] = db_setting["value"]
             result["modified_by"] = db_setting.get("modified_by")
             result["modified_at"] = db_setting.get("modified_at").isoformat() if db_setting.get("modified_at") else None
         else:
             result["value"] = current_value
-        
+
         # Mask if secret
         if metadata["is_secret"] and result["value"]:
             result["value"] = "***HIDDEN***"
-        
+
         return result
-    
+
     except HTTPException:
         raise
     except Exception as e:
@@ -405,25 +406,25 @@ async def update_setting(
     try:
         if not db_service:
             raise HTTPException(status_code=503, detail="Service not initialized")
-        
+
         # Verify setting exists
         metadata = next((m for m in get_settings_metadata() if m["key"] == key), None)
         if not metadata:
             raise HTTPException(status_code=404, detail="Setting not found")
-        
+
         if metadata["is_readonly"]:
             raise HTTPException(status_code=403, detail="Setting is readonly")
-        
+
         # Validate value
         # TODO: Add proper validation based on metadata["validation"]
-        
+
         # Get old value for history
         old_setting = await db_service.fetch_one(
             "SELECT value FROM system_settings WHERE key = $1",
             key
         )
         old_value = old_setting["value"] if old_setting else None
-        
+
         # Upsert setting
         query = """
             INSERT INTO system_settings (
@@ -435,7 +436,7 @@ async def update_setting(
                 modified_by = EXCLUDED.modified_by,
                 modified_at = NOW()
         """
-        
+
         await db_service.execute(
             query,
             key,
@@ -445,7 +446,7 @@ async def update_setting(
             metadata["value_type"],
             user_id
         )
-        
+
         # Record in history
         await db_service.execute(
             """
@@ -457,9 +458,9 @@ async def update_setting(
             value,
             user_id
         )
-        
+
         logger.info(f"Setting {key} updated by {user_id}")
-        
+
         return {
             "success": True,
             "key": key,
@@ -467,7 +468,7 @@ async def update_setting(
             "modified_by": user_id,
             "timestamp": datetime.utcnow().isoformat()
         }
-    
+
     except HTTPException:
         raise
     except Exception as e:
@@ -484,26 +485,26 @@ async def bulk_update_settings(
     try:
         if not db_service:
             raise HTTPException(status_code=503, detail="Service not initialized")
-        
+
         results = []
         errors = []
-        
+
         for update in updates:
             try:
                 key = update.get("key")
                 value = update.get("value")
-                
+
                 if not key:
                     errors.append({"error": "Missing key", "update": update})
                     continue
-                
+
                 # Use the single update endpoint logic
                 result = await update_setting(key, value, user_id)
                 results.append(result)
-                
+
             except Exception as e:
                 errors.append({"key": update.get("key"), "error": str(e)})
-        
+
         return {
             "success": len(errors) == 0,
             "updated": len(results),
@@ -511,7 +512,7 @@ async def bulk_update_settings(
             "results": results,
             "errors": errors
         }
-    
+
     except Exception as e:
         logger.error(f"Bulk update failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -523,13 +524,13 @@ async def reset_setting(key: str, user_id: str = Body(..., embed=True)):
     try:
         if not db_service:
             raise HTTPException(status_code=503, detail="Service not initialized")
-        
+
         # Delete from database (will use default)
         await db_service.execute(
             "DELETE FROM system_settings WHERE key = $1",
             key
         )
-        
+
         # Record in history
         await db_service.execute(
             """
@@ -539,16 +540,16 @@ async def reset_setting(key: str, user_id: str = Body(..., embed=True)):
             key,
             user_id
         )
-        
+
         logger.info(f"Setting {key} reset to default by {user_id}")
-        
+
         return {
             "success": True,
             "key": key,
             "action": "reset",
             "timestamp": datetime.utcnow().isoformat()
         }
-    
+
     except Exception as e:
         logger.error(f"Failed to reset setting {key}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -560,7 +561,7 @@ async def get_setting_history(key: str, limit: int = 50):
     try:
         if not db_service:
             raise HTTPException(status_code=503, detail="Service not initialized")
-        
+
         history = await db_service.fetch_all(
             """
             SELECT setting_key, old_value, new_value, modified_by, modified_at, reason
@@ -572,14 +573,14 @@ async def get_setting_history(key: str, limit: int = 50):
             key,
             limit
         )
-        
+
         # Convert datetime to ISO
         for record in history:
             if record.get("modified_at"):
                 record["modified_at"] = record["modified_at"].isoformat()
-        
+
         return history
-    
+
     except Exception as e:
         logger.error(f"Failed to get history for {key}: {e}")
         raise HTTPException(status_code=500, detail=str(e))

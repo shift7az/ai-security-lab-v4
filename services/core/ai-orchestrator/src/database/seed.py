@@ -5,10 +5,10 @@ Populates initial data for development and testing
 
 import asyncio
 import logging
-from datetime import datetime, timedelta
-from typing import List, Dict, Any
 import random
 import uuid
+from datetime import datetime, timedelta
+from typing import Any, Dict, List
 
 from ..services.database import DatabaseService
 
@@ -99,7 +99,7 @@ async def seed_cameras(db: DatabaseService) -> List[str]:
             }
         },
     ]
-    
+
     query = """
         INSERT INTO cameras (
             id, name, location, status, stream_url, snapshot_url,
@@ -115,7 +115,7 @@ async def seed_cameras(db: DatabaseService) -> List[str]:
             metadata = EXCLUDED.metadata,
             updated_at = NOW()
     """
-    
+
     camera_ids = []
     for camera in cameras:
         await db.execute(
@@ -131,7 +131,7 @@ async def seed_cameras(db: DatabaseService) -> List[str]:
         )
         camera_ids.append(camera["id"])
         logger.info(f"Seeded camera: {camera['name']}")
-    
+
     return camera_ids
 
 
@@ -140,11 +140,11 @@ async def seed_intelligence_results(db: DatabaseService, camera_ids: List[str]) 
     detection_ids = []
     threat_levels = ['none', 'low', 'medium', 'high', 'critical']
     threat_weights = [0.5, 0.25, 0.15, 0.08, 0.02]  # Probability distribution
-    
+
     # Generate data for last 7 days
     end_time = datetime.utcnow()
     start_time = end_time - timedelta(days=7)
-    
+
     # Generate 10-20 detections per day per camera
     query = """
         INSERT INTO intelligence_results (
@@ -152,20 +152,20 @@ async def seed_intelligence_results(db: DatabaseService, camera_ids: List[str]) 
             threat_level, ai_models_used, insights, processing_time_ms
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
     """
-    
+
     for camera_id in camera_ids:
         for day in range(7):
             num_detections = random.randint(10, 20)
-            
+
             for _ in range(num_detections):
                 # Random timestamp within the day
                 day_start = start_time + timedelta(days=day)
                 random_seconds = random.randint(0, 86400)
                 timestamp = day_start + timedelta(seconds=random_seconds)
-                
+
                 # Generate threat data
                 threat_level = random.choices(threat_levels, weights=threat_weights)[0]
-                
+
                 if threat_level == 'critical':
                     threat_score = random.uniform(0.85, 1.0)
                     primary_threat = random.choice([
@@ -193,9 +193,9 @@ async def seed_intelligence_results(db: DatabaseService, camera_ids: List[str]) 
                 else:
                     threat_score = random.uniform(0.0, 0.3)
                     primary_threat = "Normal activity"
-                
+
                 detection_id = f"det_{uuid.uuid4().hex[:16]}"
-                
+
                 insights = {
                     "primary_threat": primary_threat,
                     "detection_type": random.choice(["person", "vehicle", "object"]),
@@ -208,9 +208,9 @@ async def seed_intelligence_results(db: DatabaseService, camera_ids: List[str]) 
                         }
                     ]
                 }
-                
+
                 processing_time = random.uniform(50, 150)
-                
+
                 await db.execute(
                     query,
                     detection_id,
@@ -222,9 +222,9 @@ async def seed_intelligence_results(db: DatabaseService, camera_ids: List[str]) 
                     insights,
                     processing_time
                 )
-                
+
                 detection_ids.append(detection_id)
-    
+
     logger.info(f"Seeded {len(detection_ids)} intelligence results")
     return detection_ids
 
@@ -232,11 +232,11 @@ async def seed_intelligence_results(db: DatabaseService, camera_ids: List[str]) 
 async def seed_alerts(db: DatabaseService, camera_ids: List[str]) -> List[str]:
     """Seed sample alerts."""
     alert_ids = []
-    
+
     # Create alerts for last 24 hours
     end_time = datetime.utcnow()
     start_time = end_time - timedelta(hours=24)
-    
+
     # Active alerts (recent)
     active_alerts = [
         {
@@ -264,7 +264,7 @@ async def seed_alerts(db: DatabaseService, camera_ids: List[str]) -> List[str]:
             "hours_ago": 2.5
         },
     ]
-    
+
     # Acknowledged alerts
     acknowledged_alerts = [
         {
@@ -286,7 +286,7 @@ async def seed_alerts(db: DatabaseService, camera_ids: List[str]) -> List[str]:
             "acknowledged_by": "operator_2"
         },
     ]
-    
+
     # Resolved alerts
     resolved_alerts = [
         {
@@ -310,19 +310,19 @@ async def seed_alerts(db: DatabaseService, camera_ids: List[str]) -> List[str]:
             "resolution_notes": "Door secured. Reminded staff to check exits."
         },
     ]
-    
+
     # Insert active alerts
     for alert_data in active_alerts:
         alert_id = f"alert_{uuid.uuid4().hex[:12]}"
         timestamp = end_time - timedelta(hours=alert_data["hours_ago"])
-        
+
         query = """
             INSERT INTO alerts (
                 id, camera_id, threat_level, priority,
                 message, description, timestamp, status
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'active')
         """
-        
+
         await db.execute(
             query,
             alert_id,
@@ -334,13 +334,13 @@ async def seed_alerts(db: DatabaseService, camera_ids: List[str]) -> List[str]:
             timestamp
         )
         alert_ids.append(alert_id)
-    
+
     # Insert acknowledged alerts
     for alert_data in acknowledged_alerts:
         alert_id = f"alert_{uuid.uuid4().hex[:12]}"
         timestamp = end_time - timedelta(hours=alert_data["hours_ago"])
         ack_time = timestamp + timedelta(minutes=random.randint(5, 30))
-        
+
         query = """
             INSERT INTO alerts (
                 id, camera_id, threat_level, priority,
@@ -348,7 +348,7 @@ async def seed_alerts(db: DatabaseService, camera_ids: List[str]) -> List[str]:
                 acknowledged_by, acknowledged_at
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'acknowledged', $8, $9)
         """
-        
+
         await db.execute(
             query,
             alert_id,
@@ -362,14 +362,14 @@ async def seed_alerts(db: DatabaseService, camera_ids: List[str]) -> List[str]:
             ack_time
         )
         alert_ids.append(alert_id)
-    
+
     # Insert resolved alerts
     for alert_data in resolved_alerts:
         alert_id = f"alert_{uuid.uuid4().hex[:12]}"
         timestamp = end_time - timedelta(hours=alert_data["hours_ago"])
         ack_time = timestamp + timedelta(minutes=random.randint(5, 15))
         resolve_time = ack_time + timedelta(minutes=random.randint(10, 60))
-        
+
         query = """
             INSERT INTO alerts (
                 id, camera_id, threat_level, priority,
@@ -378,7 +378,7 @@ async def seed_alerts(db: DatabaseService, camera_ids: List[str]) -> List[str]:
                 resolved_by, resolved_at, resolution_notes
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'resolved', $8, $9, $10, $11, $12)
         """
-        
+
         await db.execute(
             query,
             alert_id,
@@ -395,7 +395,7 @@ async def seed_alerts(db: DatabaseService, camera_ids: List[str]) -> List[str]:
             alert_data["resolution_notes"]
         )
         alert_ids.append(alert_id)
-    
+
     logger.info(f"Seeded {len(alert_ids)} alerts")
     return alert_ids
 
@@ -404,7 +404,7 @@ async def seed_timeline_events(db: DatabaseService, camera_ids: List[str]) -> Li
     """Seed sample timeline events."""
     event_ids = []
     end_time = datetime.utcnow()
-    
+
     # Create various event types
     events = [
         {
@@ -453,18 +453,18 @@ async def seed_timeline_events(db: DatabaseService, camera_ids: List[str]) -> Li
             "metadata": {"backup_size_mb": 245, "duration_seconds": 45}
         },
     ]
-    
+
     query = """
         INSERT INTO timeline_events (
             id, type, timestamp, camera_id, threat_level,
             title, description, metadata
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
     """
-    
+
     for event in events:
         event_id = f"event_{uuid.uuid4().hex[:12]}"
         timestamp = end_time - timedelta(hours=event["hours_ago"])
-        
+
         await db.execute(
             query,
             event_id,
@@ -477,7 +477,7 @@ async def seed_timeline_events(db: DatabaseService, camera_ids: List[str]) -> Li
             event["metadata"]
         )
         event_ids.append(event_id)
-    
+
     logger.info(f"Seeded {len(event_ids)} timeline events")
     return event_ids
 
@@ -507,7 +507,7 @@ async def seed_users(db: DatabaseService) -> List[str]:
             "role": "viewer"
         },
     ]
-    
+
     query = """
         INSERT INTO users (
             id, username, email, password_hash, role, is_active, created_at
@@ -516,7 +516,7 @@ async def seed_users(db: DatabaseService) -> List[str]:
             email = EXCLUDED.email,
             role = EXCLUDED.role
     """
-    
+
     user_ids = []
     for user in users:
         await db.execute(
@@ -529,7 +529,7 @@ async def seed_users(db: DatabaseService) -> List[str]:
         )
         user_ids.append(user["id"])
         logger.info(f"Seeded user: {user['username']} ({user['role']})")
-    
+
     return user_ids
 
 
@@ -545,14 +545,14 @@ async def run_seed(db: DatabaseService) -> Dict[str, Any]:
     """
     try:
         logger.info("Starting database seed...")
-        
+
         # Seed in order (respecting dependencies)
         camera_ids = await seed_cameras(db)
         detection_ids = await seed_intelligence_results(db, camera_ids)
         alert_ids = await seed_alerts(db, camera_ids)
         event_ids = await seed_timeline_events(db, camera_ids)
         user_ids = await seed_users(db)
-        
+
         result = {
             "cameras": len(camera_ids),
             "intelligence_results": len(detection_ids),
@@ -560,10 +560,10 @@ async def run_seed(db: DatabaseService) -> Dict[str, Any]:
             "timeline_events": len(event_ids),
             "users": len(user_ids)
         }
-        
+
         logger.info(f"✅ Database seed completed: {result}")
         return result
-        
+
     except Exception as e:
         logger.error(f"Database seed failed: {e}")
         raise
@@ -576,9 +576,9 @@ async def run_seed(db: DatabaseService) -> Dict[str, Any]:
 async def main():
     """Run seed script from command line."""
     from ..config.settings import Settings
-    
+
     settings = Settings()
-    
+
     # Create database service
     db = DatabaseService(
         host=settings.database_host,
@@ -587,21 +587,21 @@ async def main():
         user=settings.database_user,
         password=settings.database_password
     )
-    
+
     try:
         # Connect
         await db.connect()
-        
+
         # Run seed
         result = await run_seed(db)
-        
+
         print("\n" + "="*60)
         print("Database Seed Results:")
         print("="*60)
         for entity, count in result.items():
             print(f"  {entity}: {count}")
         print("="*60 + "\n")
-        
+
     finally:
         # Disconnect
         await db.disconnect()

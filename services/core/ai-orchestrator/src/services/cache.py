@@ -5,8 +5,7 @@ Handles Redis caching operations with async support
 
 import json
 import logging
-from typing import Any, Optional, List, Dict
-from datetime import timedelta
+from typing import Any, Dict, List, Optional
 
 import redis.asyncio as redis
 from redis.asyncio import Redis
@@ -34,7 +33,7 @@ class CacheService:
         self.db = db
         self.max_connections = max_connections
         self.decode_responses = decode_responses
-        
+
         self.client: Optional[Redis] = None
         self._is_connected = False
 
@@ -44,7 +43,7 @@ class CacheService:
         """
         try:
             logger.info(f"Connecting to Redis: {self.host}:{self.port}")
-            
+
             self.client = redis.Redis(
                 host=self.host,
                 port=self.port,
@@ -55,13 +54,13 @@ class CacheService:
                 socket_timeout=5.0,
                 socket_connect_timeout=5.0,
             )
-            
+
             # Test connection
             await self.client.ping()
-            
+
             self._is_connected = True
             logger.info("✅ Redis connection established")
-            
+
         except Exception as e:
             logger.error(f"Failed to connect to Redis: {e}")
             raise
@@ -98,7 +97,7 @@ class CacheService:
         """
         if not self.client:
             raise RuntimeError("Redis not connected")
-        
+
         try:
             return await self.client.get(key)
         except Exception as e:
@@ -124,7 +123,7 @@ class CacheService:
         """
         if not self.client:
             raise RuntimeError("Redis not connected")
-        
+
         try:
             if ttl:
                 return await self.client.setex(key, ttl, value)
@@ -146,7 +145,7 @@ class CacheService:
         """
         if not self.client:
             raise RuntimeError("Redis not connected")
-        
+
         try:
             result = await self.client.delete(key)
             return result > 0
@@ -166,7 +165,7 @@ class CacheService:
         """
         if not self.client:
             raise RuntimeError("Redis not connected")
-        
+
         try:
             result = await self.client.exists(key)
             return result > 0
@@ -187,7 +186,7 @@ class CacheService:
         """
         if not self.client:
             raise RuntimeError("Redis not connected")
-        
+
         try:
             return await self.client.expire(key, seconds)
         except Exception as e:
@@ -206,7 +205,7 @@ class CacheService:
         """
         if not self.client:
             raise RuntimeError("Redis not connected")
-        
+
         try:
             return await self.client.ttl(key)
         except Exception as e:
@@ -230,7 +229,7 @@ class CacheService:
         value = await self.get(key)
         if value is None:
             return None
-        
+
         try:
             return json.loads(value)
         except json.JSONDecodeError as e:
@@ -269,7 +268,7 @@ class CacheService:
         """Get hash field value."""
         if not self.client:
             raise RuntimeError("Redis not connected")
-        
+
         try:
             return await self.client.hget(key, field)
         except Exception as e:
@@ -280,7 +279,7 @@ class CacheService:
         """Set hash field value."""
         if not self.client:
             raise RuntimeError("Redis not connected")
-        
+
         try:
             await self.client.hset(key, field, value)
             return True
@@ -292,7 +291,7 @@ class CacheService:
         """Get all hash fields."""
         if not self.client:
             raise RuntimeError("Redis not connected")
-        
+
         try:
             return await self.client.hgetall(key)
         except Exception as e:
@@ -307,7 +306,7 @@ class CacheService:
         """Push values to left of list."""
         if not self.client:
             raise RuntimeError("Redis not connected")
-        
+
         try:
             return await self.client.lpush(key, *values)
         except Exception as e:
@@ -318,7 +317,7 @@ class CacheService:
         """Push values to right of list."""
         if not self.client:
             raise RuntimeError("Redis not connected")
-        
+
         try:
             return await self.client.rpush(key, *values)
         except Exception as e:
@@ -329,7 +328,7 @@ class CacheService:
         """Get list range."""
         if not self.client:
             raise RuntimeError("Redis not connected")
-        
+
         try:
             return await self.client.lrange(key, start, end)
         except Exception as e:
@@ -340,7 +339,7 @@ class CacheService:
         """Trim list to specified range."""
         if not self.client:
             raise RuntimeError("Redis not connected")
-        
+
         try:
             await self.client.ltrim(key, start, end)
             return True
@@ -356,7 +355,7 @@ class CacheService:
         """Add members to set."""
         if not self.client:
             raise RuntimeError("Redis not connected")
-        
+
         try:
             return await self.client.sadd(key, *members)
         except Exception as e:
@@ -367,7 +366,7 @@ class CacheService:
         """Get all set members."""
         if not self.client:
             raise RuntimeError("Redis not connected")
-        
+
         try:
             return await self.client.smembers(key)
         except Exception as e:
@@ -378,7 +377,7 @@ class CacheService:
         """Check if member in set."""
         if not self.client:
             raise RuntimeError("Redis not connected")
-        
+
         try:
             return await self.client.sismember(key, member)
         except Exception as e:
@@ -399,7 +398,7 @@ class CacheService:
         """Add members to sorted set with scores."""
         if not self.client:
             raise RuntimeError("Redis not connected")
-        
+
         try:
             return await self.client.zadd(key, mapping, nx=nx, xx=xx)
         except Exception as e:
@@ -416,7 +415,7 @@ class CacheService:
         """Get sorted set range."""
         if not self.client:
             raise RuntimeError("Redis not connected")
-        
+
         try:
             return await self.client.zrange(key, start, end, withscores=withscores)
         except Exception as e:
@@ -440,7 +439,7 @@ class CacheService:
         """
         if not self.client:
             raise RuntimeError("Redis not connected")
-        
+
         try:
             return await self.client.publish(channel, message)
         except Exception as e:
@@ -458,7 +457,7 @@ class CacheService:
         """
         if not self.client:
             raise RuntimeError("Redis not connected")
-        
+
         try:
             await self.client.flushdb()
             logger.warning("Redis database flushed")
@@ -474,7 +473,7 @@ class CacheService:
         """
         if not self.client:
             raise RuntimeError("Redis not connected")
-        
+
         try:
             return await self.client.keys(pattern)
         except Exception as e:
@@ -491,7 +490,7 @@ class CacheService:
         try:
             if not self.client:
                 return False
-            
+
             result = await self.client.ping()
             return result is True
         except Exception as e:
@@ -502,7 +501,7 @@ class CacheService:
         """Get Redis server information."""
         if not self.client:
             raise RuntimeError("Redis not connected")
-        
+
         try:
             return await self.client.info()
         except Exception as e:
@@ -513,7 +512,7 @@ class CacheService:
         """Get number of keys in database."""
         if not self.client:
             raise RuntimeError("Redis not connected")
-        
+
         try:
             return await self.client.dbsize()
         except Exception as e:

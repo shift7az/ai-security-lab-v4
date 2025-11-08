@@ -5,9 +5,9 @@ Structured logging setup with file and console handlers
 
 import logging
 import sys
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Optional
-from logging.handlers import RotatingFileHandler
 
 
 def setup_logging(
@@ -25,39 +25,39 @@ def setup_logging(
         log_to_file: Whether to log to file
         log_file_path: Path to log file
     """
-    
+
     # Default format if not provided
     if log_format is None:
         log_format = (
             "%(asctime)s - %(name)s - %(levelname)s - "
             "[%(filename)s:%(lineno)d] - %(message)s"
         )
-    
+
     # Convert string log level to logging constant
     numeric_level = getattr(logging, log_level.upper(), logging.INFO)
-    
+
     # Root logger configuration
     root_logger = logging.getLogger()
     root_logger.setLevel(numeric_level)
-    
+
     # Remove existing handlers
     root_logger.handlers.clear()
-    
+
     # Create formatter
     formatter = logging.Formatter(log_format)
-    
+
     # Console handler (always enabled)
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(numeric_level)
     console_handler.setFormatter(formatter)
     root_logger.addHandler(console_handler)
-    
+
     # File handler (optional)
     if log_to_file:
         # Create logs directory if it doesn't exist
         log_path = Path(log_file_path)
         log_path.parent.mkdir(parents=True, exist_ok=True)
-        
+
         # Rotating file handler (max 10MB, keep 5 backups)
         file_handler = RotatingFileHandler(
             log_file_path,
@@ -68,15 +68,15 @@ def setup_logging(
         file_handler.setLevel(numeric_level)
         file_handler.setFormatter(formatter)
         root_logger.addHandler(file_handler)
-        
+
         logging.info(f"File logging enabled: {log_file_path}")
-    
+
     # Set levels for noisy libraries
     logging.getLogger("asyncio").setLevel(logging.WARNING)
     logging.getLogger("urllib3").setLevel(logging.WARNING)
     logging.getLogger("aiohttp").setLevel(logging.WARNING)
     logging.getLogger("httpx").setLevel(logging.WARNING)
-    
+
     logging.info(f"Logging configured: level={log_level}, file={log_to_file}")
 
 

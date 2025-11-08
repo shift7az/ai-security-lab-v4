@@ -3,14 +3,13 @@ Database Service for AI Security Lab v4.0
 Handles all database operations with AsyncPG and TimescaleDB
 """
 
-import asyncio
 import logging
-from typing import List, Dict, Any, Optional
-from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
+from datetime import datetime
+from typing import Any, Dict, List, Optional
 
 import asyncpg
-from asyncpg import Pool, Connection
+from asyncpg import Pool
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +38,7 @@ class DatabaseService:
         self.min_pool_size = min_pool_size
         self.max_pool_size = max_pool_size
         self.command_timeout = command_timeout
-        
+
         self.pool: Optional[Pool] = None
         self._is_connected = False
 
@@ -49,7 +48,7 @@ class DatabaseService:
         """
         try:
             logger.info(f"Connecting to database: {self.host}:{self.port}/{self.database}")
-            
+
             self.pool = await asyncpg.create_pool(
                 host=self.host,
                 port=self.port,
@@ -61,14 +60,14 @@ class DatabaseService:
                 command_timeout=self.command_timeout,
                 timeout=30.0,  # Connection timeout
             )
-            
+
             # Test connection
             async with self.pool.acquire() as conn:
                 await conn.fetchval("SELECT 1")
-            
+
             self._is_connected = True
             logger.info("✅ Database connection pool established")
-            
+
         except Exception as e:
             logger.error(f"Failed to connect to database: {e}")
             raise
@@ -101,7 +100,7 @@ class DatabaseService:
         """
         if not self.pool:
             raise RuntimeError("Database not connected")
-        
+
         async with self.pool.acquire() as conn:
             async with conn.transaction():
                 yield conn
@@ -119,7 +118,7 @@ class DatabaseService:
         """
         if not self.pool:
             raise RuntimeError("Database not connected")
-        
+
         try:
             async with self.pool.acquire() as conn:
                 return await conn.execute(query, *args)
@@ -140,7 +139,7 @@ class DatabaseService:
         """
         if not self.pool:
             raise RuntimeError("Database not connected")
-        
+
         try:
             async with self.pool.acquire() as conn:
                 row = await conn.fetchrow(query, *args)
@@ -162,7 +161,7 @@ class DatabaseService:
         """
         if not self.pool:
             raise RuntimeError("Database not connected")
-        
+
         try:
             async with self.pool.acquire() as conn:
                 rows = await conn.fetch(query, *args)
@@ -181,7 +180,7 @@ class DatabaseService:
         """
         if not self.pool:
             raise RuntimeError("Database not connected")
-        
+
         try:
             async with self.pool.acquire() as conn:
                 await conn.executemany(query, args_list)
@@ -333,24 +332,24 @@ class DatabaseService:
         conditions = ["1=1"]
         params = []
         param_count = 0
-        
+
         if status:
             param_count += 1
             conditions.append(f"status = ${param_count}")
             params.append(status)
-        
+
         if priority:
             param_count += 1
             conditions.append(f"priority = ${param_count}")
             params.append(priority)
-        
+
         if camera_id:
             param_count += 1
             conditions.append(f"camera_id = ${param_count}")
             params.append(camera_id)
-        
+
         param_count += 1
-        
+
         query = f"""
             SELECT 
                 a.id,
@@ -376,7 +375,7 @@ class DatabaseService:
             ORDER BY a.priority DESC, a.timestamp DESC
             LIMIT ${param_count}
         """
-        
+
         return await self.fetch_all(query, *params, limit)
 
     async def acknowledge_alert(self, alert_id: str, user_id: str) -> bool:
@@ -446,14 +445,14 @@ class DatabaseService:
         conditions = [f"timestamp > NOW() - INTERVAL '{hours} hours'"]
         params = []
         param_count = 0
-        
+
         if event_type and event_type != 'all':
             param_count += 1
             conditions.append(f"type = ${param_count}")
             params.append(event_type)
-        
+
         param_count += 1
-        
+
         query = f"""
             SELECT 
                 e.id,
@@ -471,7 +470,7 @@ class DatabaseService:
             ORDER BY e.timestamp DESC
             LIMIT ${param_count}
         """
-        
+
         return await self.fetch_all(query, *params, limit)
 
     async def create_timeline_event(
@@ -559,21 +558,21 @@ class DatabaseService:
                 p.count as previous
             FROM current_period c, previous_period p
         """
-        
+
         result = await self.fetch_one(query)
         if not result:
             return {"current": 0, "previous": 0, "change_percentage": 0, "direction": "stable"}
-        
+
         current = result['current'] or 0
         previous = result['previous'] or 0
-        
+
         if previous > 0:
             change = ((current - previous) / previous) * 100
         else:
             change = 0
-        
+
         direction = "up" if change > 5 else "down" if change < -5 else "stable"
-        
+
         return {
             "current": current,
             "previous": previous,
@@ -605,7 +604,7 @@ class DatabaseService:
         try:
             if not self.pool:
                 return False
-            
+
             async with self.pool.acquire() as conn:
                 result = await conn.fetchval("SELECT 1")
                 return result == 1
@@ -617,7 +616,7 @@ class DatabaseService:
         """Get connection pool statistics."""
         if not self.pool:
             return {"connected": False}
-        
+
         return {
             "connected": True,
             "size": self.pool.get_size(),

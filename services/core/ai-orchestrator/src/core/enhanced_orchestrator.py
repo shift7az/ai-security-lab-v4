@@ -8,16 +8,15 @@ and real-time intelligence processing with full integration capabilities.
 import asyncio
 import json
 import logging
-from typing import Dict, List, Optional, Any
-from datetime import datetime, timedelta
-import base64
 from dataclasses import dataclass
+from datetime import datetime, timedelta
+from typing import Any, Dict, List, Optional
 
-from .threat_detector_client import ThreatDetectorClient, ThreatAnalysis
-from ..services.frigate_client import FrigateClient
-from ..services.database import DatabaseService
-from ..services.cache import CacheService
 from ..config.settings import Settings
+from ..services.cache import CacheService
+from ..services.database import DatabaseService
+from ..services.frigate_client import FrigateClient
+from .threat_detector_client import ThreatAnalysis, ThreatDetectorClient
 
 logger = logging.getLogger(__name__)
 
@@ -556,13 +555,14 @@ class EnhancedAIOrchestrator:
                 timestamp=timestamp,
                 metadata=metadata
             )
-            
+
             # Process immediately (bypass queue for API requests)
             result = await self._process_detection(detection)
-            
+
             # Convert to DetectionResult format for API response
-            from ..models.detection import DetectionResult as DR, ThreatLevel as TL
-            
+            from ..models.detection import DetectionResult as DR
+            from ..models.detection import ThreatLevel as TL
+
             return DR(
                 detection_id=result.detection_id,
                 camera_id=result.camera_id,
@@ -574,7 +574,7 @@ class EnhancedAIOrchestrator:
                 ai_models_used=result.ai_models_used,
                 insights=result.insights
             )
-            
+
         except Exception as e:
             logger.error(f"Failed to process frame: {e}")
             raise
@@ -589,16 +589,16 @@ class EnhancedAIOrchestrator:
         try:
             # Calculate uptime (simplified)
             uptime_seconds = 0.0  # Would track actual start time
-            
+
             # Get camera count
             cameras = await self.db_service.get_cameras()
             active_cameras = len([c for c in cameras if c['status'] == 'online'])
-            
+
             # Determine current threat level
             recent_threats = await self.db_service.get_threat_statistics(hours=1)
             critical_count = recent_threats.get('critical_threats', 0)
             high_count = recent_threats.get('high_threats', 0)
-            
+
             if critical_count > 0:
                 threat_level = "critical"
             elif high_count > 0:
@@ -607,7 +607,7 @@ class EnhancedAIOrchestrator:
                 threat_level = "medium"
             else:
                 threat_level = "none"
-            
+
             return {
                 "status": "operational",
                 "version": "4.0.0",
@@ -618,7 +618,7 @@ class EnhancedAIOrchestrator:
                 "gpu_utilization": 0.0,  # Would query actual GPU
                 "memory_usage": 0.0,  # Would query actual memory
             }
-            
+
         except Exception as e:
             logger.error(f"Failed to get system status: {e}")
             raise
@@ -636,7 +636,7 @@ class EnhancedAIOrchestrator:
         try:
             # Query intelligence results for patterns
             since = datetime.utcnow() - timedelta(hours=hours)
-            
+
             query = """
                 SELECT 
                     camera_id,
@@ -648,16 +648,16 @@ class EnhancedAIOrchestrator:
                 GROUP BY camera_id
                 ORDER BY avg_threat_score DESC
             """
-            
+
             results = await self.db_service.fetch_all(query, since)
-            
+
             return {
                 "time_range_hours": hours,
                 "patterns_by_camera": results,
                 "total_detections": sum(r['detection_count'] for r in results),
                 "avg_threat_level": sum(r['avg_threat_score'] for r in results) / len(results) if results else 0.0
             }
-            
+
         except Exception as e:
             logger.error(f"Failed to analyze behavior patterns: {e}")
             return {"error": str(e)}
@@ -671,15 +671,15 @@ class EnhancedAIOrchestrator:
         """
         try:
             logger.info("Reloading AI models...")
-            
+
             # Reload threat detector models
             if self.is_threat_detector_enabled:
                 # Would call threat detector reload endpoint
                 logger.info("Threat detector models reloaded")
-            
+
             logger.info("✅ Models reloaded successfully")
             return True
-            
+
         except Exception as e:
             logger.error(f"Failed to reload models: {e}")
             return False
@@ -693,7 +693,7 @@ class EnhancedAIOrchestrator:
         """
         try:
             models = []
-            
+
             # Threat detector models
             if self.is_threat_detector_enabled:
                 models.append({
@@ -703,7 +703,7 @@ class EnhancedAIOrchestrator:
                     "version": "1.0.0",
                     "enabled": True
                 })
-            
+
             # Behavior analyzer
             models.append({
                 "name": "Behavior Analyzer",
@@ -712,13 +712,13 @@ class EnhancedAIOrchestrator:
                 "version": "1.0.0",
                 "enabled": True
             })
-            
+
             return {
                 "models": models,
                 "count": len(models),
                 "all_loaded": all(m['status'] == 'loaded' for m in models)
             }
-            
+
         except Exception as e:
             logger.error(f"Failed to get model info: {e}")
             return {"error": str(e), "models": [], "count": 0}
@@ -732,14 +732,14 @@ class EnhancedAIOrchestrator:
             # Clear old items from queues if needed
             if self.detection_queue.qsize() > 500:
                 logger.warning(f"Detection queue size high: {self.detection_queue.qsize()}")
-            
+
             # Update cache with current statistics
             await self.cache_service.set_json(
                 "orchestrator:stats",
                 self.stats,
                 ttl=60
             )
-            
+
             # Log performance metrics
             if self.stats["total_processed"] % 100 == 0 and self.stats["total_processed"] > 0:
                 logger.info(
@@ -747,7 +747,7 @@ class EnhancedAIOrchestrator:
                     f"{self.stats['threats_detected']} threats, "
                     f"{self.stats['avg_processing_time']:.2f}ms avg"
                 )
-                
+
         except Exception as e:
             logger.error(f"Maintenance task error: {e}")
 

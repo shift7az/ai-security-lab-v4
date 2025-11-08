@@ -4,7 +4,8 @@ HTTP client for Frigate NVR API integration
 """
 
 import logging
-from typing import Dict, List, Any, Optional
+from typing import Any, Dict, List, Optional
+
 import httpx
 
 logger = logging.getLogger(__name__)
@@ -14,7 +15,7 @@ class FrigateClient:
     """
     HTTP client for Frigate Plus NVR system.
     """
-    
+
     def __init__(
         self,
         base_url: str,
@@ -24,22 +25,22 @@ class FrigateClient:
         self.base_url = base_url.rstrip('/')
         self.api_key = api_key
         self.timeout = timeout
-        
+
         # Create HTTP client
         headers = {}
         if api_key:
             headers['Authorization'] = f'Bearer {api_key}'
-        
+
         self.client = httpx.AsyncClient(
             base_url=self.base_url,
             headers=headers,
             timeout=timeout
         )
-    
+
     async def close(self):
         """Close HTTP client."""
         await self.client.aclose()
-    
+
     async def get_cameras(self) -> List[Dict[str, Any]]:
         """
         Get list of cameras from Frigate.
@@ -56,7 +57,7 @@ class FrigateClient:
         except Exception as e:
             logger.error(f"Failed to get cameras from Frigate: {e}")
             return []
-    
+
     async def get_camera_status(self, camera_id: str) -> Dict[str, Any]:
         """
         Get status for specific camera.
@@ -75,7 +76,7 @@ class FrigateClient:
         except Exception as e:
             logger.error(f"Failed to get camera status for {camera_id}: {e}")
             return {}
-    
+
     async def get_events(
         self,
         camera_id: Optional[str] = None,
@@ -95,7 +96,7 @@ class FrigateClient:
             params = {'limit': limit}
             if camera_id:
                 params['camera'] = camera_id
-            
+
             response = await self.client.get('/api/events', params=params)
             if response.status_code == 200:
                 return response.json()
@@ -103,7 +104,7 @@ class FrigateClient:
         except Exception as e:
             logger.error(f"Failed to get events: {e}")
             return []
-    
+
     async def get_snapshot(self, camera_id: str) -> Optional[bytes]:
         """
         Get latest snapshot for camera.
@@ -122,7 +123,7 @@ class FrigateClient:
         except Exception as e:
             logger.error(f"Failed to get snapshot for {camera_id}: {e}")
             return None
-    
+
     async def health_check(self) -> bool:
         """
         Check if Frigate is accessible.

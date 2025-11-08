@@ -2,13 +2,14 @@
 Pytest fixtures for AI Security Lab tests
 """
 
-import pytest
 import asyncio
 from typing import AsyncGenerator
 
-from src.services.database import DatabaseService
-from src.services.cache import CacheService
+import pytest
+
 from src.config.settings import Settings
+from src.services.cache import CacheService
+from src.services.database import DatabaseService
 
 
 @pytest.fixture(scope="session")
@@ -38,7 +39,7 @@ async def db_service(settings: Settings) -> AsyncGenerator[DatabaseService, None
         user=settings.database_user,
         password=settings.database_password
     )
-    
+
     try:
         await db.connect()
         yield db
@@ -58,7 +59,7 @@ async def cache_service(settings: Settings) -> AsyncGenerator[CacheService, None
         password=settings.redis_password,
         db=settings.redis_db
     )
-    
+
     try:
         await cache.connect()
         yield cache
