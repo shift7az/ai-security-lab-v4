@@ -1,0 +1,359 @@
+version: '3.8'
+
+services:
+  # ============================================================================
+  # Database Layer
+  # ============================================================================
+  
+  timescaledb:
+    image: timescale/timescaledb:latest-pg15
+    container_name: ai-security-timescaledb
+    restart: always
+    environment:
+      POSTGRES_DB: security_events
+      POSTGRES_USER: security
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD}
+      POSTGRES_INITDB_ARGS: "-c shared_preload_libraries='timescaledb'"
+    volumes:
+      - timescaledb_data:/var/lib/postgresql/data
+      - ../../services/core/ai-orchestrator/migrations:/migrations:ro
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U security -d security_events"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ai-security-network
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 1G
+
+  redis-stack:
+    image: redis/redis-stack:latest
+    container_name: ai-security-redis
+    restart: always
+    environment:
+      REDIS_ARGS: "--requirepass ${REDIS_PASSWORD}"
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+      - "8001:8001"
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ai-security-network
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+  # ============================================================================
+  # Storage Layer
+  # ============================================================================
+
+  minio:
+    image: minio/minio:latest
+    container_name: ai-security-minio
+    restart: always
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY}
+    volumes:
+      - minio_data:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    networks:
+      - ai-security-network
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+
+  # ============================================================================
+  # Monitoring Layer
+  # ============================================================================
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: ai-security-prometheus
+    restart: always
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    volumes:
+      - ../../config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - ai-security-network
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: ai-security-grafana
+    restart: always
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+      GF_INSTALL_PLUGINS: redis-datasource
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ../../config/grafana:/etc/grafana/provisioning:ro
+    ports:
+      - "3001:3000"
+    depends_on:
+      - prometheus
+    networks:
+      - ai-security-network
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+
+  tempo:
+    image: grafana/tempo:latest
+    container_name: ai-security-tempo
+    restart: always
+    command: [ "-config.file=/etc/tempo.yaml" ]
+    volumes:
+      - ../../config/tempo.yaml:/etc/tempo.yaml:ro
+      - tempo_data:/tmp/tempo
+    ports:
+      - "14268:14268"  # jaeger ingest
+      - "3200:3200"    # tempo
+      - "4317:4317"    # otlp grpc
+      - "4318:4318"    # otlp http
+      - "9411:9411"    # zipkin
+    networks:
+      - ai-security-network
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+
+  # ============================================================================
+  # AI Services Layer
+  # ============================================================================
+
+  ai-orchestrator:
+    build:
+      context: ../../services/core/ai-orchestrator
+      dockerfile: Dockerfile
+    container_name: ai-security-orchestrator
+    restart: always
+    environment:
+      # Database
+      DATABASE_HOST: timescaledb
+      DATABASE_PORT: 5432
+      DATABASE_NAME: security_events
+      DATABASE_USER: security
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD}
+      
+      # Redis
+      REDIS_HOST: redis-stack
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      
+      # Frigate
+      FRIGATE_URL: http://frigate-plus:5000
+      FRIGATE_API_KEY: ${FRIGATE_API_KEY}
+      
+      # Auth
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+      
+      # MinIO
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      
+      # Monitoring
+      ENABLE_METRICS: "true"
+      ENABLE_TRACING: "true"
+      JAEGER_HOST: tempo
+      
+      # General
+      ENVIRONMENT: production
+      DEBUG: "false"
+    volumes:
+      - ../../services/core/ai-orchestrator:/app:ro
+      - orchestrator_logs:/app/logs
+    ports:
+      - "8000:8000"
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      redis-stack:
+        condition: service_healthy
+    networks:
+      - ai-security-network
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 4G
+        reservations:
+          cpus: '2'
+          memory: 2G
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  threat-detector:
+    build:
+      context: ../../services/intelligence/threat-detector
+      dockerfile: Dockerfile
+    container_name: ai-security-threat-detector
+    restart: always
+    environment:
+      ENVIRONMENT: production
+      DEBUG: "false"
+      MODEL_PATH: /models
+    volumes:
+      - threat_detector_models:/models
+    ports:
+      - "8001:8001"
+    networks:
+      - ai-security-network
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 4G
+        reservations:
+          cpus: '2'
+          memory: 2G
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ============================================================================
+  # Frontend Layer
+  # ============================================================================
+
+  dashboard:
+    build:
+      context: ../../services/ui/dashboard
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+    container_name: ai-security-dashboard
+    restart: always
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+      NODE_ENV: production
+    ports:
+      - "3000:3000"
+    depends_on:
+      - ai-orchestrator
+    networks:
+      - ai-security-network
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 1G
+        reservations:
+          cpus: '1'
+          memory: 512M
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ============================================================================
+  # Reverse Proxy (Optional - Nginx)
+  # ============================================================================
+
+  nginx:
+    image: nginx:alpine
+    container_name: ai-security-nginx
+    restart: always
+    volumes:
+      - ../../config/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ../../config/nginx/ssl:/etc/nginx/ssl:ro
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      - dashboard
+      - ai-orchestrator
+    networks:
+      - ai-security-network
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+
+# ============================================================================
+# Networks
+# ============================================================================
+
+networks:
+  ai-security-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+# ============================================================================
+# Volumes
+# ============================================================================
+
+volumes:
+  timescaledb_data:
+    driver: local
+  redis_data:
+    driver: local
+  minio_data:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+  tempo_data:
+    driver: local
+  orchestrator_logs:
+    driver: local
+  threat_detector_models:
+    driver: local
