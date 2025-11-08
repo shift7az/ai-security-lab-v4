@@ -43,9 +43,13 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
               </button>
 
               {/* Settings */}
-              <button className="p-2 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors">
+              <a
+                href="/settings"
+                className="p-2 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                title="System Settings"
+              >
                 <Settings className="w-5 h-5" />
-              </button>
+              </a>
 
               {/* User Menu */}
               <button className="flex items-center space-x-2 p-2 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors">

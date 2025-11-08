@@ -28,7 +28,7 @@ from src.services.database import DatabaseService
 from src.services.cache import CacheService
 from src.utils.logging_config import setup_logging
 from src.config.settings import Settings
-from src.api import dashboard
+from src.api import dashboard, settings
 
 
 # ============================================================================
@@ -123,6 +123,10 @@ async def lifespan(app: FastAPI):
         # Set dependencies for dashboard router
         dashboard.set_dependencies(orchestrator, db_service, cache_service)
         logger.info("Dashboard API router configured")
+        
+        # Set dependencies for settings router
+        settings.set_dependencies(db_service, settings)
+        logger.info("Settings API router configured")
 
     except Exception as e:
         logger.error(f"Failed to initialize services: {e}")
@@ -165,6 +169,9 @@ app.add_middleware(
 
 # Include dashboard API router
 app.include_router(dashboard.router)
+
+# Include settings API router
+app.include_router(settings.router)
 
 # Mount Socket.IO
 socket_app = socketio.ASGIApp(sio, app)

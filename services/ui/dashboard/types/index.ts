@@ -378,6 +378,55 @@ export interface NotificationSettings {
 }
 
 // ============================================================================
+// Settings Models
+// ============================================================================
+
+export type SettingValueType = 'string' | 'number' | 'boolean' | 'array' | 'object'
+export type SettingCategory = 'database' | 'cache' | 'services' | 'performance' | 'features' | 'monitoring' | 'security'
+
+export interface SystemSetting {
+  key: string
+  value: any
+  category: SettingCategory
+  description: string
+  value_type: SettingValueType
+  default_value: any
+  current_value: any
+  is_secret: boolean
+  is_readonly: boolean
+  is_modified: boolean
+  validation?: {
+    min?: number
+    max?: number
+    pattern?: string
+    options?: string[]
+  }
+  modified_by?: string
+  modified_at?: string
+}
+
+export interface SettingsCategory {
+  id: string
+  name: string
+  count: number
+  icon: string
+}
+
+export interface SettingsUpdate {
+  key: string
+  value: any
+}
+
+export interface SettingHistory {
+  setting_key: string
+  old_value: any
+  new_value: any
+  modified_by: string
+  modified_at: string
+  reason?: string
+}
+
+// ============================================================================
 // Utility Types
 // ============================================================================
 
