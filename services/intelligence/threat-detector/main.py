@@ -25,6 +25,8 @@ import cv2
 from src.models.threat_model import ThreatModel, ThreatFactor
 from src.detectors.weapon_detector import WeaponDetector
 from src.detectors.behavior_analyzer import BehaviorAnalyzer
+from src.detectors.face_detector import FaceDetector
+from src.detectors.plate_recognizer import PlateRecognizer
 from src.utils.alert_manager import AlertManager
 from src.config.settings import Settings
 
@@ -105,6 +107,8 @@ class ThreatDetectorService:
         self.threat_model = ThreatModel()
         self.weapon_detector = WeaponDetector()
         self.behavior_analyzer = BehaviorAnalyzer()
+        self.face_detector = FaceDetector()
+        self.plate_recognizer = PlateRecognizer()
         self.alert_manager = AlertManager()
         self.db_pool = None
         self.redis_client = None
@@ -136,8 +140,13 @@ class ThreatDetectorService:
             await self.threat_model.load_models()
             await self.weapon_detector.initialize()
             await self.behavior_analyzer.initialize()
+            await self.face_detector.initialize()
+            await self.plate_recognizer.initialize()
 
-            logger.info("Threat detector service initialized successfully")
+            logger.info("✅ Threat detector service initialized successfully")
+            logger.info(f"  - Weapon detection: {self.weapon_detector.get_model_info()['model_type']}")
+            logger.info(f"  - Face detection: {self.face_detector.get_model_info()['model_type']}")
+            logger.info(f"  - Plate recognition: {self.plate_recognizer.get_model_info()['model_type']}")
 
         except Exception as e:
             logger.error(f"Failed to initialize threat detector: {e}")
@@ -180,6 +189,14 @@ class ThreatDetectorService:
                 # Factor 5: Historical Analysis
                 historical_factor = await self._analyze_historical_threat(detection)
                 factors.append(historical_factor)
+
+                # Factor 6: Face Recognition (for person detections)
+                face_factor = await self._analyze_face_threat(detection)
+                factors.append(face_factor)
+
+                # Factor 7: Vehicle/Plate Analysis (for vehicle detections)
+                vehicle_factor = await self._analyze_vehicle_threat(detection)
+                factors.append(vehicle_factor)
 
                 # Calculate overall threat score
                 threat_score = self._calculate_threat_score(factors)
@@ -250,7 +267,7 @@ class ThreatDetectorService:
         return ThreatFactor(
             name="object_type",
             score=min(base_score * confidence, 1.0),
-            weight=0.25,
+            weight=0.15,  # Reduced from 0.25 to accommodate new factors
             description=f"Object type: {detection.detection_type}",
             confidence=confidence
         )
@@ -270,7 +287,7 @@ class ThreatDetectorService:
             return ThreatFactor(
                 name="weapon_detection",
                 score=weapon_score,
-                weight=0.35,
+                weight=0.30,  # Reduced from 0.35 to accommodate new factors
                 description="Weapon detection analysis",
                 confidence=0.85 if weapon_score > 0.5 else 0.95
             )
@@ -280,7 +297,7 @@ class ThreatDetectorService:
             return ThreatFactor(
                 name="weapon_detection",
                 score=0.0,
-                weight=0.35,
+                weight=0.30,  # Reduced from 0.35 to accommodate new factors
                 description="Weapon detection unavailable",
                 confidence=0.0
             )
@@ -297,7 +314,7 @@ class ThreatDetectorService:
             return ThreatFactor(
                 name="behavior_analysis",
                 score=behavior_score,
-                weight=0.25,
+                weight=0.20,  # Reduced from 0.25 to accommodate new factors
                 description="Behavioral pattern analysis",
                 confidence=0.75
             )
@@ -307,7 +324,7 @@ class ThreatDetectorService:
             return ThreatFactor(
                 name="behavior_analysis",
                 score=0.3,
-                weight=0.25,
+                weight=0.20,  # Reduced from 0.25 to accommodate new factors
                 description="Behavior analysis unavailable",
                 confidence=0.0
             )
@@ -371,6 +388,141 @@ class ThreatDetectorService:
                 score=0.0,
                 weight=0.05,
                 description="Historical analysis unavailable",
+                confidence=0.0
+            )
+
+    async def _analyze_face_threat(self, detection: DetectionInput) -> ThreatFactor:
+        """Analyze face-based threats (watchlist, unknown persons, etc.)."""
+        try:
+            if detection.frame_data and detection.detection_type == "person":
+                # Run face detection
+                face_results = await self.face_detector.detect_faces(
+                    detection.frame_data,
+                    detection.bbox
+                )
+
+                face_count = face_results.get("count", 0)
+                faces = face_results.get("faces", [])
+
+                face_score = 0.0
+                description_parts = []
+
+                if face_count == 0:
+                    # No face detected on person - suspicious (mask, hidden face)
+                    face_score = 0.4
+                    description_parts.append("no_face_detected")
+                elif face_count > 0:
+                    # Face detected - check against watchlist
+                    # TODO: Implement watchlist matching with face embeddings
+                    is_on_watchlist = detection.metadata.get("on_watchlist", False)
+                    is_unknown = detection.metadata.get("unknown_person", False)
+
+                    if is_on_watchlist:
+                        face_score = 0.9
+                        description_parts.append("watchlist_match")
+                    elif is_unknown and detection.metadata.get("in_restricted_area"):
+                        face_score = 0.6
+                        description_parts.append("unknown_in_restricted")
+                    else:
+                        face_score = 0.1
+                        description_parts.append("face_detected")
+
+                    description_parts.append(f"{face_count}_faces")
+
+                return ThreatFactor(
+                    name="face_recognition",
+                    score=face_score,
+                    weight=0.10,
+                    description=f"Face analysis: {', '.join(description_parts)}",
+                    confidence=0.80 if face_count > 0 else 0.60
+                )
+            else:
+                # Not a person detection, face analysis not applicable
+                return ThreatFactor(
+                    name="face_recognition",
+                    score=0.0,
+                    weight=0.10,
+                    description="Face analysis not applicable",
+                    confidence=1.0
+                )
+
+        except Exception as e:
+            logger.warning(f"Face analysis failed: {e}")
+            return ThreatFactor(
+                name="face_recognition",
+                score=0.0,
+                weight=0.10,
+                description="Face analysis unavailable",
+                confidence=0.0
+            )
+
+    async def _analyze_vehicle_threat(self, detection: DetectionInput) -> ThreatFactor:
+        """Analyze vehicle-based threats (watchlist plates, stolen vehicles, etc.)."""
+        try:
+            if detection.frame_data and detection.detection_type == "vehicle":
+                # Run license plate recognition
+                plate_results = await self.plate_recognizer.recognize_plate(
+                    detection.frame_data,
+                    detection.bbox
+                )
+
+                plate_count = plate_results.get("count", 0)
+                plates = plate_results.get("plates", [])
+
+                vehicle_score = 0.0
+                description_parts = []
+
+                if plate_count == 0:
+                    # No plate detected - suspicious
+                    vehicle_score = 0.3
+                    description_parts.append("no_plate_detected")
+                elif plate_count > 0:
+                    # Plate detected - check against watchlist
+                    best_plate = plates[0]  # Highest confidence
+                    plate_text = best_plate.get("text", "")
+                    plate_conf = best_plate.get("confidence", 0.0)
+
+                    # TODO: Implement watchlist matching
+                    is_stolen = detection.metadata.get("stolen_vehicle", False)
+                    is_on_watchlist = detection.metadata.get("on_watchlist", False)
+                    parking_violation = detection.metadata.get("parking_violation", False)
+
+                    if is_stolen or is_on_watchlist:
+                        vehicle_score = 0.9
+                        description_parts.append("watchlist_match")
+                    elif parking_violation:
+                        vehicle_score = 0.4
+                        description_parts.append("parking_violation")
+                    else:
+                        vehicle_score = 0.1
+                        description_parts.append("vehicle_identified")
+
+                    description_parts.append(f"plate:{plate_text}")
+
+                return ThreatFactor(
+                    name="vehicle_analysis",
+                    score=vehicle_score,
+                    weight=0.10,
+                    description=f"Vehicle analysis: {', '.join(description_parts)}",
+                    confidence=0.85 if plate_count > 0 else 0.50
+                )
+            else:
+                # Not a vehicle detection, vehicle analysis not applicable
+                return ThreatFactor(
+                    name="vehicle_analysis",
+                    score=0.0,
+                    weight=0.10,
+                    description="Vehicle analysis not applicable",
+                    confidence=1.0
+                )
+
+        except Exception as e:
+            logger.warning(f"Vehicle analysis failed: {e}")
+            return ThreatFactor(
+                name="vehicle_analysis",
+                score=0.0,
+                weight=0.10,
+                description="Vehicle analysis unavailable",
                 confidence=0.0
             )
 
@@ -702,6 +854,175 @@ async def get_threat_stats(hours: int = 24):
     except Exception as e:
         logger.error(f"Failed to get threat stats: {e}")
         raise HTTPException(status_code=500, detail="Failed to retrieve statistics")
+
+
+# ============================================================================
+# SPECIALIZED DETECTION ENDPOINTS
+# ============================================================================
+
+class FaceDetectionInput(BaseModel):
+    """Input for face detection."""
+    frame_data: str  # base64 encoded image
+    bbox: Optional[List[float]] = None  # [x1, y1, x2, y2]
+
+
+class PlateRecognitionInput(BaseModel):
+    """Input for license plate recognition."""
+    frame_data: str  # base64 encoded image
+    bbox: Optional[List[float]] = None  # [x1, y1, x2, y2]
+
+
+class ComprehensiveDetectionInput(BaseModel):
+    """Input for comprehensive detection."""
+    frame_data: str  # base64 encoded image
+    detection_type: str = "unknown"  # person, vehicle, etc.
+
+
+@app.post("/detect/faces")
+async def detect_faces_endpoint(input: FaceDetectionInput):
+    """
+    Specialized endpoint for face detection.
+
+    Returns face detection results including bounding boxes, landmarks,
+    and optional age/gender if InsightFace is enabled.
+    """
+    if not threat_detector:
+        raise HTTPException(status_code=503, detail="Threat detector not initialized")
+
+    try:
+        results = await threat_detector.face_detector.detect_faces(
+            input.frame_data,
+            input.bbox
+        )
+
+        return {
+            "status": "success",
+            "model": results.get("model", "Unknown"),
+            "faces": results.get("faces", []),
+            "count": results.get("count", 0),
+            "timestamp": datetime.utcnow()
+        }
+
+    except Exception as e:
+        logger.error(f"Face detection failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Face detection failed: {str(e)}")
+
+
+@app.post("/detect/plates")
+async def detect_plates_endpoint(input: PlateRecognitionInput):
+    """
+    Specialized endpoint for license plate recognition.
+
+    Returns license plate OCR results including text, confidence, and bounding boxes.
+    """
+    if not threat_detector:
+        raise HTTPException(status_code=503, detail="Threat detector not initialized")
+
+    try:
+        results = await threat_detector.plate_recognizer.recognize_plate(
+            input.frame_data,
+            input.bbox
+        )
+
+        return {
+            "status": "success",
+            "model": results.get("model", "Unknown"),
+            "plates": results.get("plates", []),
+            "count": results.get("count", 0),
+            "timestamp": datetime.utcnow()
+        }
+
+    except Exception as e:
+        logger.error(f"Plate recognition failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Plate recognition failed: {str(e)}")
+
+
+@app.post("/detect/comprehensive")
+async def comprehensive_detection_endpoint(input: ComprehensiveDetectionInput):
+    """
+    Comprehensive detection endpoint that runs ALL AI models.
+
+    Returns results from weapon detection, face detection, and plate recognition
+    in a single response. Useful for analyzing a scene with all available models.
+    """
+    if not threat_detector:
+        raise HTTPException(status_code=503, detail="Threat detector not initialized")
+
+    try:
+        results = {
+            "status": "success",
+            "timestamp": datetime.utcnow(),
+            "detection_type": input.detection_type,
+            "models_used": [],
+            "weapon_detection": None,
+            "face_detection": None,
+            "plate_recognition": None
+        }
+
+        # Run all applicable models
+        try:
+            weapon_score = await threat_detector.weapon_detector.detect_weapon(
+                input.frame_data
+            )
+            results["weapon_detection"] = {
+                "score": weapon_score,
+                "detected": weapon_score > threat_detector.weapon_detector.confidence_threshold,
+                "model": threat_detector.weapon_detector.get_model_info()["model_type"]
+            }
+            results["models_used"].append("weapon_detection")
+        except Exception as e:
+            logger.warning(f"Weapon detection failed in comprehensive: {e}")
+
+        # Face detection (if person or unknown)
+        if input.detection_type in ["person", "unknown"]:
+            try:
+                face_results = await threat_detector.face_detector.detect_faces(
+                    input.frame_data
+                )
+                results["face_detection"] = face_results
+                results["models_used"].append("face_detection")
+            except Exception as e:
+                logger.warning(f"Face detection failed in comprehensive: {e}")
+
+        # Plate recognition (if vehicle or unknown)
+        if input.detection_type in ["vehicle", "unknown"]:
+            try:
+                plate_results = await threat_detector.plate_recognizer.recognize_plate(
+                    input.frame_data
+                )
+                results["plate_recognition"] = plate_results
+                results["models_used"].append("plate_recognition")
+            except Exception as e:
+                logger.warning(f"Plate recognition failed in comprehensive: {e}")
+
+        return results
+
+    except Exception as e:
+        logger.error(f"Comprehensive detection failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Comprehensive detection failed: {str(e)}")
+
+
+@app.get("/models/info")
+async def get_models_info():
+    """
+    Get information about all loaded AI models.
+
+    Returns model types, availability, and configuration for each detector.
+    """
+    if not threat_detector:
+        raise HTTPException(status_code=503, detail="Threat detector not initialized")
+
+    try:
+        return {
+            "weapon_detector": threat_detector.weapon_detector.get_model_info(),
+            "face_detector": threat_detector.face_detector.get_model_info(),
+            "plate_recognizer": threat_detector.plate_recognizer.get_model_info(),
+            "behavior_analyzer": threat_detector.behavior_analyzer.get_behavior_patterns()
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to get models info: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve models info")
 
 
 if __name__ == "__main__":
