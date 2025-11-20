@@ -9,7 +9,7 @@ import express from 'express';
 import { Server as SocketIOServer } from 'socket.io';
 import { createServer } from 'http';
 import * as mediasoup from 'mediasoup';
-import type { Worker, Router, WebRtcTransport } from 'mediasoup/node/lib/types';
+import type { Worker, Router, WebRtcTransport, WorkerLogLevel, WorkerLogTag } from 'mediasoup/node/lib/types';
 
 const app = express();
 const httpServer = createServer(app);
@@ -25,8 +25,8 @@ const config = {
   worker: {
     rtcMinPort: 40000,
     rtcMaxPort: 49999,
-    logLevel: 'warn' as const,
-    logTags: ['info', 'ice', 'dtls', 'rtp', 'srtp', 'rtcp'] as const,
+    logLevel: 'warn' as WorkerLogLevel,
+    logTags: ['info', 'ice', 'dtls', 'rtp', 'srtp', 'rtcp'] as WorkerLogTag[],
   },
   router: {
     mediaCodecs: [
