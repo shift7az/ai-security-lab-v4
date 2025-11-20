@@ -58,6 +58,7 @@ yarn-error.log*
 .next/
 out/
 build/
+*.tsbuildinfo
 
 # Docker
 .dockerignore

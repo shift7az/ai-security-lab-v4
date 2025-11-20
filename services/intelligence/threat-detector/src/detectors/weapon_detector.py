@@ -1,12 +1,13 @@
 """
 Weapon Detection Module for AI Security Lab v4.0
 
-Computer vision module for detecting weapons in images and video frames.
+Computer vision module for detecting weapons in images and video frames using YOLOv8.
 """
 
 import asyncio
 import base64
 import logging
+from pathlib import Path
 from typing import List, Optional, Tuple, Dict, Any
 import numpy as np
 import torch
@@ -16,27 +17,45 @@ from PIL import Image
 import cv2
 import io
 
+try:
+    from ultralytics import YOLO
+    YOLO_AVAILABLE = True
+except ImportError:
+    YOLO_AVAILABLE = False
+    logger.warning("Ultralytics not available, using heuristic-based detection")
+
 logger = logging.getLogger(__name__)
 
 
 class WeaponDetector:
     """
-    Advanced weapon detection using computer vision and deep learning.
+    Advanced weapon detection using YOLOv8 and computer vision.
+    Falls back to heuristic-based detection if models are unavailable.
     """
 
-    def __init__(self):
+    def __init__(self, model_path: Optional[str] = None):
         self.model = None
+        self.use_yolo = YOLO_AVAILABLE
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.confidence_threshold = 0.5
         self.is_initialized = False
+        self.model_path = model_path or "yolov8n.pt"  # Default to YOLOv8 nano
 
         # Weapon classes that we can detect
         self.weapon_classes = [
             'gun', 'rifle', 'pistol', 'knife', 'sword', 'bat', 'club',
-            'grenade', 'bomb', 'explosive', 'weapon'
+            'grenade', 'bomb', 'explosive', 'weapon', 'firearm'
         ]
 
-        # Image preprocessing transforms
+        # COCO classes that might be relevant for threat detection
+        self.threat_objects = {
+            'knife': 1.0,
+            'baseball bat': 0.7,
+            'bottle': 0.3,  # Potential weapon
+            'scissors': 0.6
+        }
+
+        # Image preprocessing transforms (for heuristic mode)
         self.transforms = T.Compose([
             T.Resize((640, 640)),
             T.ToTensor(),
@@ -46,19 +65,38 @@ class WeaponDetector:
     async def initialize(self):
         """Initialize the weapon detection model."""
         try:
-            # For now, we'll use a mock implementation
-            # In production, load a trained YOLO model or similar
-            logger.info("Weapon detector initialized (mock implementation)")
+            if self.use_yolo:
+                logger.info(f"Loading YOLOv8 model: {self.model_path}")
 
-            # Simulate model loading
-            await asyncio.sleep(1)
+                # Check if custom weapon model exists
+                custom_model_path = Path("/models") / "weapon_detection.pt"
+                if custom_model_path.exists():
+                    self.model_path = str(custom_model_path)
+                    logger.info(f"Found custom weapon model: {self.model_path}")
+
+                # Load YOLO model (will auto-download if not present)
+                self.model = YOLO(self.model_path)
+
+                # Move model to appropriate device
+                if torch.cuda.is_available():
+                    logger.info(f"Using GPU: {torch.cuda.get_device_name(0)}")
+                else:
+                    logger.info("Using CPU for inference")
+
+                logger.info(f"✅ YOLOv8 model loaded successfully")
+
+            else:
+                logger.warning("⚠️  YOLO not available, using heuristic-based detection")
+                logger.info("Install ultralytics for ML-based weapon detection: pip install ultralytics")
 
             self.is_initialized = True
-            logger.info("Weapon detector ready")
+            logger.info("✅ Weapon detector ready")
 
         except Exception as e:
             logger.error(f"Failed to initialize weapon detector: {e}")
-            raise
+            logger.warning("Falling back to heuristic-based detection")
+            self.use_yolo = False
+            self.is_initialized = True  # Still mark as initialized but with fallback
 
     async def detect_weapon(
         self,
@@ -137,9 +175,78 @@ class WeaponDetector:
             Maximum weapon detection confidence
         """
         try:
-            # For demonstration, we'll use a simple heuristic-based approach
-            # In production, this would use a trained neural network
+            if self.use_yolo and self.model is not None:
+                # Use YOLOv8 for detection
+                return await self._yolo_detection(image)
+            else:
+                # Fall back to heuristic-based detection
+                return await self._heuristic_detection(image)
 
+        except Exception as e:
+            logger.error(f"Weapon detection analysis failed: {e}")
+            return 0.0
+
+    async def _yolo_detection(self, image: np.ndarray) -> float:
+        """
+        Run YOLOv8-based weapon detection.
+
+        Args:
+            image: Input image as numpy array
+
+        Returns:
+            Maximum weapon detection confidence
+        """
+        try:
+            # Run inference
+            results = self.model(image, conf=self.confidence_threshold, verbose=False)
+
+            max_confidence = 0.0
+
+            # Process results
+            for result in results:
+                if result.boxes is not None:
+                    for box in result.boxes:
+                        # Get class name and confidence
+                        cls_id = int(box.cls[0])
+                        conf = float(box.conf[0])
+                        cls_name = result.names[cls_id].lower()
+
+                        # Check if it's a weapon class
+                        is_weapon = False
+                        weapon_multiplier = 1.0
+
+                        # Direct weapon match
+                        if any(weapon in cls_name for weapon in self.weapon_classes):
+                            is_weapon = True
+                            weapon_multiplier = 1.0
+
+                        # Threat object match (from COCO)
+                        elif cls_name in self.threat_objects:
+                            is_weapon = True
+                            weapon_multiplier = self.threat_objects[cls_name]
+
+                        if is_weapon:
+                            adjusted_conf = conf * weapon_multiplier
+                            max_confidence = max(max_confidence, adjusted_conf)
+                            logger.debug(f"Detected potential weapon: {cls_name} (conf: {conf:.3f}, adjusted: {adjusted_conf:.3f})")
+
+            return max_confidence
+
+        except Exception as e:
+            logger.error(f"YOLO detection failed: {e}")
+            return 0.0
+
+    async def _heuristic_detection(self, image: np.ndarray) -> float:
+        """
+        Fallback heuristic-based weapon detection.
+
+        Args:
+            image: Input image as numpy array
+
+        Returns:
+            Estimated weapon detection confidence
+        """
+        try:
             weapon_score = 0.0
 
             # Heuristic 1: Shape analysis (looking for long, thin objects)
@@ -161,7 +268,7 @@ class WeaponDetector:
             return weapon_score
 
         except Exception as e:
-            logger.error(f"Weapon detection analysis failed: {e}")
+            logger.error(f"Heuristic detection failed: {e}")
             return 0.0
 
     def _analyze_weapon_shapes(self, image: np.ndarray) -> float:
@@ -356,9 +463,14 @@ class WeaponDetector:
     def get_model_info(self) -> Dict[str, Any]:
         """Get information about the weapon detection model."""
         return {
-            "model_type": "YOLOv8" if self.model else "Heuristic",
+            "model_type": "YOLOv8" if (self.use_yolo and self.model) else "Heuristic",
+            "model_path": self.model_path if self.use_yolo else None,
+            "yolo_available": YOLO_AVAILABLE,
+            "using_ml_model": self.use_yolo and self.model is not None,
             "weapon_classes": self.weapon_classes,
+            "threat_objects": list(self.threat_objects.keys()),
             "confidence_threshold": self.confidence_threshold,
             "device": str(self.device),
+            "cuda_available": torch.cuda.is_available(),
             "is_initialized": self.is_initialized
         }
