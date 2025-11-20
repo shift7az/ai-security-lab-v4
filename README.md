@@ -14,7 +14,7 @@ A state-of-the-art AI-powered surveillance system that goes beyond basic detecti
 ### ✅ **Production-Ready Features (100% Complete)**
 
 - **🏗️ Foundation Infrastructure**: Complete Docker stack with GPU support, multi-database architecture
-- **🤖 AI Detection Models**: Weapon detection, face recognition, license plate recognition, behavior analysis
+- **🤖 AI Detection Models**: YOLOv8 weapon detection, MediaPipe/InsightFace face recognition, EasyOCR license plate recognition, rule-based behavior analysis
 - **🔍 Threat Detection Service**: Multi-factor threat scoring with real-time alerts
 - **🔗 Service Integration**: AI orchestrator with threat detector integration
 - **✨ Real-Time Dashboard**: Complete Next.js 14 dashboard with 19 components, WebSocket integration, and full API

@@ -27,6 +27,10 @@ torch==2.1.0
 torchvision==0.16.0
 torchaudio==2.1.0
 transformers==4.35.2
+ultralytics==8.1.0  # YOLOv8 for weapon/object detection
+mediapipe==0.10.9  # Face detection and pose estimation
+easyocr==1.7.1  # License plate recognition
+insightface==0.7.3  # Advanced face recognition (optional)
 
 # Data Processing
 pandas==2.1.3
