@@ -19,6 +19,7 @@ from pydantic import BaseModel
 import asyncpg
 import redis.asyncio as redis
 from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
 import torch
 import cv2
 
