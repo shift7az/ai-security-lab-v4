@@ -2,10 +2,11 @@
 
 ## Project Overview
 
-AI Security Lab v4.0 is a production-ready, enterprise-grade AI-powered surveillance system providing real-time threat detection, behavioral analysis, and automated security monitoring. The system processes multiple camera feeds simultaneously using advanced AI models for weapon detection, behavior analysis, and anomaly detection.
+AI Security Lab v4.0 is a production-ready, enterprise-grade AI-powered surveillance system providing real-time threat detection, behavioral analysis, and automated security monitoring. The system processes multiple camera feeds simultaneously using advanced AI models including YOLOv8 for weapon detection, MediaPipe/InsightFace for face recognition, EasyOCR for license plate reading, and rule-based behavior analysis.
 
 **Status**: 100% Complete (Production Ready)
 **Repository**: https://github.com/shift7az/ai-security-lab-v4
+**AI Models**: YOLOv8, MediaPipe, EasyOCR, InsightFace (optional)
 
 ## Technology Stack
 
@@ -33,6 +34,13 @@ AI Security Lab v4.0 is a production-ready, enterprise-grade AI-powered surveill
 - **Tempo**: Distributed tracing
 - **MinIO**: Object storage for media files
 - **Nginx**: Reverse proxy (production)
+
+### AI Models
+- **YOLOv8** (Ultralytics): Weapon and object detection (30% threat weight)
+- **MediaPipe**: Fast face detection with landmarks (10% threat weight)
+- **InsightFace** (Optional): Advanced face recognition with age/gender
+- **EasyOCR**: License plate recognition and OCR (10% threat weight)
+- **Rule-based Behavior**: Behavioral pattern analysis (20% threat weight)
 
 ## Project Structure
 
@@ -115,14 +123,31 @@ Next.js 14 real-time dashboard with 19 React components.
 - Optimistic UI updates
 
 ### 3. Threat Detector (Port 8001)
-Dedicated service for multi-factor threat analysis.
+Dedicated service for comprehensive multi-factor threat analysis using multiple AI models.
 
-**Capabilities**:
-- 5-factor threat scoring system
-- Weapon detection
-- Behavior analysis
-- Crowd monitoring
-- Access control violations
+**7-Factor Threat Scoring System**:
+1. **Object Type Analysis** (15% weight) - Base threat by object class
+2. **Weapon Detection** (30% weight) - YOLOv8 ML model for firearms, knives, threats
+3. **Behavior Analysis** (20% weight) - Movement patterns, dwell time, suspicious activity
+4. **Context Analysis** (10% weight) - Time, location, crowd density
+5. **Historical Analysis** (5% weight) - Recent threats in area
+6. **Face Recognition** (10% weight) - MediaPipe/InsightFace for watchlist, unknown persons
+7. **Vehicle/Plate Analysis** (10% weight) - EasyOCR for license plates, stolen vehicles
+
+**AI Models**:
+- YOLOv8: Weapon and threat object detection
+- MediaPipe: Face detection with landmarks
+- InsightFace: Face recognition with embeddings (optional)
+- EasyOCR: License plate OCR and recognition
+
+**Endpoints**:
+- `POST /analyze`: Full threat analysis with all 7 factors
+- `POST /detect/faces`: Face detection only
+- `POST /detect/plates`: License plate recognition only
+- `POST /detect/comprehensive`: Run ALL models at once
+- `GET /models/info`: Check model status and configuration
+- `GET /history`: Threat analysis history
+- `GET /stats`: Threat statistics
 
 ## Development Workflow
 

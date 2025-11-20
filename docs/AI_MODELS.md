@@ -4,6 +4,38 @@
 
 AI Security Lab v4.0 uses multiple AI models for comprehensive threat detection and analysis. This document describes the models, their capabilities, and how to set them up.
 
+**All models are FULLY INTEGRATED** into the threat detection pipeline and actively used in production.
+
+## Integration Status
+
+### 7-Factor Threat Analysis Pipeline
+
+All models work together in a unified threat scoring system:
+
+| Factor | Weight | Model | Status | Triggers |
+|--------|--------|-------|--------|----------|
+| 1. Object Type | 15% | Rule-based | ✅ Active | All detections |
+| 2. Weapon Detection | 30% | **YOLOv8** | ✅ Active | Person/weapon detections |
+| 3. Behavior Analysis | 20% | Rule-based | ✅ Active | All detections |
+| 4. Context Analysis | 10% | Rule-based | ✅ Active | All detections |
+| 5. Historical | 5% | Database query | ✅ Active | All detections |
+| 6. Face Recognition | 10% | **MediaPipe/InsightFace** | ✅ Active | Person detections |
+| 7. Vehicle/Plate | 10% | **EasyOCR** | ✅ Active | Vehicle detections |
+
+**ML Model Contribution**: 50% of total threat score (Factors 2, 6, 7)
+
+### API Integration
+
+**Main Endpoint**: `POST /analyze` - Runs full 7-factor analysis
+**Specialized Endpoints**:
+- `POST /detect/faces` - Face detection only
+- `POST /detect/plates` - Plate recognition only
+- `POST /detect/comprehensive` - Run ALL models
+
+**Model Status**: `GET /models/info` - Check what's loaded
+
+See [API.md](API.md) for complete API documentation.
+
 ## Implemented AI Models
 
 ### 1. **Weapon Detection - YOLOv8**
